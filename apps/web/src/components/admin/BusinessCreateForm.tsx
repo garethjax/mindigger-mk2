@@ -75,7 +75,7 @@ export default function BusinessCreateForm({ users, sectors, googleMapsApiKey }:
     // Create business
     const { data: biz, error: bizErr } = await supabase
       .from("businesses")
-      .insert({ name, type, user_id: userId })
+      .insert({ name, type })
       .select("id")
       .single();
 
@@ -83,6 +83,14 @@ export default function BusinessCreateForm({ users, sectors, googleMapsApiKey }:
       setError(bizErr?.message ?? "Errore nella creazione");
       setLoading(false);
       return;
+    }
+
+    // Assign user to this business
+    if (userId) {
+      await supabase
+        .from("profiles")
+        .update({ business_id: biz.id })
+        .eq("id", userId);
     }
 
     // Create locations

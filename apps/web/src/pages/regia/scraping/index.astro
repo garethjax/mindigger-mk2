@@ -12,25 +12,10 @@ const { data: configs } = await supabase
     id, platform, status, bot_id, initial_scrape_done,
     initial_depth, recurring_depth, frequency,
     retry_count, last_error, last_scraped_at, next_poll_at, updated_at,
-    locations(id, name, is_competitor, businesses(id, name, user_id))
+    locations(id, name, is_competitor, businesses(id, name))
   `)
   .order("updated_at", { ascending: false });
 
-// Get profile names for owners
-const userIds = [
-  ...new Set(
-    (configs ?? [])
-      .map((c: any) => c.locations?.businesses?.user_id)
-      .filter(Boolean)
-  ),
-];
-const { data: profiles } = userIds.length > 0
-  ? await supabase.from("profiles").select("id, full_name").in("id", userIds)
-  : { data: [] };
-
-const profileMap = Object.fromEntries(
-  (profiles ?? []).map((p) => [p.id, p.full_name ?? p.id.slice(0, 8)])
-);
 ---
 
 <AdminLayout title="Scraping">
@@ -38,6 +23,6 @@ const profileMap = Object.fromEntries(
   <ScrapingDashboard
     client:load
     configs={(configs ?? []) as any}
-    profileMap={profileMap}
+    profileMap={{}}
   />
 </AdminLayout>

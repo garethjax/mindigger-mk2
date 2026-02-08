@@ -14,14 +14,9 @@ const { data: profile } = await supabase
 
 if (!profile) return Astro.redirect("/regia/users");
 
-const { data: businesses } = await supabase
-  .from("businesses")
-  .select("id, name, user_id")
-  .eq("user_id", id);
-
 const { data: allBusinesses } = await supabase
   .from("businesses")
-  .select("id, name, user_id")
+  .select("id, name")
   .order("name");
 ---
 
@@ -31,14 +26,13 @@ const { data: allBusinesses } = await supabase
     <h1 class="text-2xl font-bold">
       {profile.full_name || "Utente"}
     </h1>
-    <span class="text-sm text-gray-400">{id?.slice(0, 8)}…</span>
+    <span class="text-sm text-gray-400">{id?.slice(0, 8)}&hellip;</span>
   </div>
 
   <div class="max-w-lg">
     <UserEditForm
       client:load
       profile={profile}
-      userBusinesses={businesses ?? []}
       allBusinesses={allBusinesses ?? []}
     />
   </div>

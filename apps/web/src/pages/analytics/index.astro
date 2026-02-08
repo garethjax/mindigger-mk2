@@ -4,21 +4,16 @@ import Dashboard from "@/components/dashboard/Dashboard";
 import { createSupabaseServer } from "@/lib/supabase";
 
 const supabase = createSupabaseServer(Astro.cookies, Astro.request);
-const user = Astro.locals.user;
+const profile = Astro.locals.profile;
+const businessId = profile?.business_id;
 
-// Load user's businesses and locations (SSR)
-const { data: businesses } = await supabase
-  .from("businesses")
-  .select("id")
-  .eq("user_id", user.id);
-
-const businessIds = businesses?.map((b) => b.id) ?? [];
-
-const { data: locations } = await supabase
-  .from("locations")
-  .select("id, name, is_competitor")
-  .in("business_id", businessIds)
-  .order("name");
+const { data: locations } = businessId
+  ? await supabase
+      .from("locations")
+      .select("id, name, is_competitor")
+      .eq("business_id", businessId)
+      .order("name")
+  : { data: [] };
 ---
 
 <DashboardLayout title="Analytics">

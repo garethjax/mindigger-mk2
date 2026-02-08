@@ -30,7 +30,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
   // Fetch profile for role info
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role, full_name, account_enabled, account_locked")
+    .select("role, full_name, business_id, account_enabled, account_locked")
     .eq("id", user.id)
     .single();
 

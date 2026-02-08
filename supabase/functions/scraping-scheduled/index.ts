@@ -53,8 +53,8 @@ Deno.serve(async (req) => {
         locations!inner(
           business_id,
           businesses!inner(
-            user_id,
-            profiles:user_id(account_enabled, account_locked, active_subscription)
+            id,
+            profiles!business_id(account_enabled, account_locked, active_subscription)
           )
         )
       `)
@@ -70,21 +70,23 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Filter for active users
+    // Filter for active users (at least one active user with subscription)
     const activeConfigs = configs.filter((c) => {
       const loc = c.locations as {
         business_id: string;
         businesses: {
-          user_id: string;
+          id: string;
           profiles: {
             account_enabled: boolean;
             account_locked: boolean;
             active_subscription: boolean;
-          };
+          }[];
         };
       };
-      const profile = loc.businesses.profiles;
-      return profile.account_enabled && !profile.account_locked && profile.active_subscription;
+      const profiles = loc.businesses.profiles ?? [];
+      return profiles.some(
+        (p) => p.account_enabled && !p.account_locked && p.active_subscription,
+      );
     });
 
     for (const config of activeConfigs) {

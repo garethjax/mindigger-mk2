@@ -16,9 +16,14 @@ dist/
 supabase/.temp/
 supabase/.branches/
 
+# Bun cache
+Library/
+**/Library/
+
 # IDE
 .vscode/
 .idea/
+.cursor/
 *.swp
 *.swo
 .DS_Store

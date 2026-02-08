@@ -5,7 +5,6 @@ interface Business {
   id: string;
   name: string;
   type: string;
-  user_id: string;
   embeddings_enabled: boolean;
 }
 
@@ -38,7 +37,7 @@ interface Props {
   locations: Location[];
   scrapingConfigs: ScrapingConfig[];
   sectors: Sector[];
-  ownerName: string;
+  usersLabel: string;
   reviewCount: number;
 }
 
@@ -62,7 +61,7 @@ export default function BusinessDetailView({
   locations: initialLocations,
   scrapingConfigs: initialConfigs,
   sectors,
-  ownerName,
+  usersLabel,
   reviewCount,
 }: Props) {
   const [locations] = useState(initialLocations);
@@ -110,7 +109,7 @@ export default function BusinessDetailView({
             <span class="text-gray-400">Tipo:</span> {business.type}
           </div>
           <div>
-            <span class="text-gray-400">Proprietario:</span> {ownerName}
+            <span class="text-gray-400">Utenti:</span> {usersLabel}
           </div>
           <div>
             <span class="text-gray-400">Recensioni totali:</span>{" "}

@@ -7,18 +7,11 @@ const supabase = createSupabaseServer(Astro.cookies, Astro.request);
 const { data: businesses } = await supabase
   .from("businesses")
   .select(`
-    id, name, type, user_id, embeddings_enabled, created_at,
-    locations(id, name, is_competitor)
+    id, name, type, embeddings_enabled, created_at,
+    locations(id, name, is_competitor),
+    profiles(id, full_name)
   `)
   .order("created_at", { ascending: false });
-
-// Get user names
-const userIds = [...new Set((businesses ?? []).map((b) => b.user_id))];
-const { data: profiles } = userIds.length > 0
-  ? await supabase.from("profiles").select("id, full_name").in("id", userIds)
-  : { data: [] };
-
-const profileMap = new Map((profiles ?? []).map((p) => [p.id, p.full_name]));
 
 ---
 
@@ -38,7 +31,10 @@ const profileMap = new Map((profiles ?? []).map((p) => [p.id, p.full_name]));
       const locs = (biz.locations as { id: string; name: string; is_competitor: boolean }[]) ?? [];
       const ownLocs = locs.filter((l) => !l.is_competitor);
       const compLocs = locs.filter((l) => l.is_competitor);
-      const ownerName = profileMap.get(biz.user_id) ?? biz.user_id.slice(0, 8);
+      const users = (biz.profiles as { id: string; full_name: string | null }[]) ?? [];
+      const ownerLabel = users.length > 0
+        ? users.map((u) => u.full_name || u.id.slice(0, 8)).join(", ")
+        : "Nessun utente";
 
       return (
         <a
@@ -63,7 +59,7 @@ const profileMap = new Map((profiles ?? []).map((p) => [p.id, p.full_name]));
           </div>
 
           <div class="mt-2 flex items-center gap-4 text-xs text-gray-500">
-            <span>Proprietario: {ownerName}</span>
+            <span>Utenti: {ownerLabel}</span>
             <span>{ownLocs.length} location</span>
             {compLocs.length > 0 && <span>{compLocs.length} competitor</span>}
           </div>
