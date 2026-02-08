@@ -1,0 +1,16 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+---
+
+<BaseLayout title="Login">
+  <div class="flex min-h-screen items-center justify-center">
+    <div class="w-full max-w-sm space-y-6 rounded-xl bg-white p-8 shadow-lg">
+      <h1 class="text-center text-2xl font-bold">Mind Digger</h1>
+      <p class="text-center text-sm text-gray-500">Accedi alla tua dashboard</p>
+      <!-- Auth form will be a Preact island -->
+      <div id="login-form">
+        <p class="text-center text-gray-400">Caricamento...</p>
+      </div>
+    </div>
+  </div>
+</BaseLayout>

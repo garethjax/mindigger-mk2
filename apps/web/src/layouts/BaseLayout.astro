@@ -1,0 +1,22 @@
+---
+import "@/styles/global.css";
+
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+---
+
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title} | Mind Digger</title>
+  </head>
+  <body class="min-h-screen bg-gray-50 text-gray-900">
+    <slot />
+  </body>
+</html>
