@@ -11,6 +11,7 @@
 -- ----------------------------------------------------------------------------
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE EXTENSION IF NOT EXISTS "pg_cron";
+CREATE EXTENSION IF NOT EXISTS "vector";  -- pgvector for semantic search
 
 -- ----------------------------------------------------------------------------
 -- 1. Custom Types (Enums)
@@ -42,6 +43,8 @@ CREATE TYPE ai_mode AS ENUM ('batch', 'direct');
 
 -- Legacy Period enum: 3,6,12,24,36,48,60 months
 CREATE TYPE swot_period AS ENUM ('3', '6', '12', '24', '36', '48', '60');
+
+CREATE TYPE embeddings_status AS ENUM ('idle', 'processing', 'completed', 'failed');
 
 -- ----------------------------------------------------------------------------
 -- 2. Tables
@@ -88,6 +91,9 @@ CREATE TABLE businesses (
   type        TEXT DEFAULT 'organization',
   logo_url    TEXT,
   user_id     UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  -- Semantic search (opt-in per business, admin-activated)
+  embeddings_enabled  BOOLEAN NOT NULL DEFAULT FALSE,
+  embeddings_status   embeddings_status NOT NULL DEFAULT 'idle',
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -155,6 +161,8 @@ CREATE TABLE reviews (
   raw_data      JSONB,
   ai_result     JSONB,
   status        review_status NOT NULL DEFAULT 'pending',
+  -- Semantic search embedding (nullable: populated only when business has embeddings_enabled)
+  embedding     vector(768),
   batched_at    TIMESTAMPTZ,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -270,6 +278,12 @@ CREATE INDEX idx_topic_scores_location  ON topic_scores(location_id);
 CREATE INDEX idx_ai_batches_status      ON ai_batches(status);
 CREATE INDEX idx_swot_location          ON swot_analyses(location_id);
 CREATE INDEX idx_token_usage_date       ON token_usage(business_id, date);
+
+-- Vector similarity index (HNSW for fast cosine search)
+-- Only indexes rows that have embeddings (partial index saves space)
+CREATE INDEX idx_reviews_embedding ON reviews
+  USING hnsw (embedding vector_cosine_ops)
+  WHERE embedding IS NOT NULL;
 
 CREATE INDEX idx_categories_sector      ON categories(business_sector_id);
 CREATE INDEX idx_businesses_user        ON businesses(user_id);

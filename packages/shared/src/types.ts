@@ -7,6 +7,7 @@ import type {
   BatchStatus,
   BatchType,
   AIMode,
+  EmbeddingsStatus,
   SwotPeriod,
 } from "./enums";
 
@@ -43,6 +44,8 @@ export interface Business {
   type: string | null;
   logo_url: string | null;
   user_id: string;
+  embeddings_enabled: boolean;
+  embeddings_status: EmbeddingsStatus;
   created_at: string;
   updated_at: string;
 }
@@ -148,7 +151,7 @@ export interface SwotAnalysis {
   location_id: string;
   business_id: string;
   period: SwotPeriod;
-  statistics: Record<string, unknown> | null;
+  statistics: SwotStatistics[] | null;
   results: SwotResult | null;
   status: ReviewStatus;
   batched_at: string | null;
@@ -156,11 +159,19 @@ export interface SwotAnalysis {
   updated_at: string;
 }
 
+export interface SwotStatistics {
+  category_name: string;
+  category_uid: string;
+  total_reviews: number;
+  high_ratings: { count: number; percentage: number };
+  low_ratings: { count: number; percentage: number };
+}
+
 export interface SwotResult {
-  strengths: { items: string[] };
-  weaknesses: { items: string[] };
-  opportunities: { items: string[] };
-  threats: { items: string[] };
+  strengths: { points: string[] };
+  weaknesses: { points: string[] };
+  opportunities: { points: string[] };
+  threats: { points: string[] };
   operational_suggestions: {
     title: string;
     description: string;

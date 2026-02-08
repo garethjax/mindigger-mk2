@@ -51,6 +51,13 @@ export enum AIMode {
   DIRECT = "direct",
 }
 
+export enum EmbeddingsStatus {
+  IDLE = "idle",
+  PROCESSING = "processing",
+  COMPLETED = "completed",
+  FAILED = "failed",
+}
+
 export enum SwotPeriod {
   LAST_3_MONTHS = "3",
   LAST_6_MONTHS = "6",

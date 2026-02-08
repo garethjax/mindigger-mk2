@@ -29,3 +29,7 @@ npm-debug.log*
 
 # TypeScript
 *.tsbuildinfo
+
+# Legacy data (dump, credentials)
+PIANO/old_dump/
+PIANO/old_env.txt
