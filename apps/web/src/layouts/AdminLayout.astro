@@ -50,7 +50,23 @@ function isActive(href: string, exact = false) {
         >
           &larr; Torna alla Dashboard
         </a>
+        <button
+          id="logout-btn"
+          type="button"
+          class="mt-1 block w-full rounded-lg px-3 py-2 text-left text-xs text-red-400 hover:bg-gray-800 hover:text-red-300"
+        >
+          Esci
+        </button>
       </div>
+
+      <script>
+        import { createSupabaseBrowser } from "@/lib/supabase";
+        document.getElementById("logout-btn")?.addEventListener("click", async () => {
+          const supabase = createSupabaseBrowser();
+          await supabase.auth.signOut();
+          window.location.href = "/auth/login";
+        });
+      </script>
     </aside>
     <main class="flex-1 p-8">
       <slot />

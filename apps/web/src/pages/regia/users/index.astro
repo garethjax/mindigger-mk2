@@ -12,7 +12,7 @@ const { data: profiles } = await supabase
 
 const ROLE_LABELS: Record<string, { label: string; color: string }> = {
   admin: { label: "Admin", color: "bg-purple-100 text-purple-700" },
-  business: { label: "Business", color: "bg-blue-100 text-blue-700" },
+  business: { label: "Analista", color: "bg-blue-100 text-blue-700" },
 };
 ---
 
@@ -65,7 +65,7 @@ const ROLE_LABELS: Record<string, { label: string; color: string }> = {
                 <div class="text-sm font-medium text-gray-900">
                   {p.full_name || "\u2014"}
                 </div>
-                <div class="text-xs text-gray-400">{p.id.slice(0, 8)}\u2026</div>
+                {!p.full_name && <div class="text-xs text-gray-400">{p.id.slice(0, 8)}\u2026</div>}
               </td>
               <td class="px-4 py-3">
                 <span class={`rounded-full px-2 py-0.5 text-xs font-medium ${role.color}`}>

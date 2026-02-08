@@ -31,7 +31,7 @@ export function createSupabaseServer(cookies: AstroCookies, request?: Request) {
         for (const { name, value, options } of cookiesToSet) {
           cookies.set(name, value, {
             path: "/",
-            httpOnly: true,
+            httpOnly: false, // must be false so createBrowserClient can read session cookies
             secure: import.meta.env.PROD,
             sameSite: "lax",
             maxAge: 60 * 60 * 24 * 7, // 7 days

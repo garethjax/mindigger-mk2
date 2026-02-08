@@ -89,13 +89,13 @@ export default function UserEditForm({ profile, allBusinesses }: Props) {
             onChange={(e) => setRole((e.target as HTMLSelectElement).value)}
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
-            <option value="business">Business</option>
+            <option value="business">Analista</option>
             <option value="admin">Admin</option>
           </select>
         </div>
 
         <div>
-          <label class="mb-1 block text-xs font-medium text-gray-500">Business Associato</label>
+          <label class="mb-1 block text-xs font-medium text-gray-500">Azienda Associata</label>
           <select
             value={businessId}
             onChange={(e) => setBusinessId((e.target as HTMLSelectElement).value)}
@@ -165,7 +165,7 @@ export default function UserEditForm({ profile, allBusinesses }: Props) {
       {currentBiz && (
         <div class="rounded-lg border border-gray-200 bg-white p-6">
           <h2 class="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">
-            Business Associato
+            Azienda Associata
           </h2>
           <div class="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2">
             <span class="text-sm text-gray-700">{currentBiz.name}</span>
