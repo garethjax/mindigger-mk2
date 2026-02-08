@@ -7,7 +7,8 @@ const supabase = createSupabaseServer(Astro.cookies, Astro.request);
 const { data: businesses } = await supabase
   .from("businesses")
   .select(`
-    id, name, type, embeddings_enabled, created_at,
+    id, name, type, ragione_sociale, email, referente_nome,
+    embeddings_enabled, created_at,
     locations(id, name, is_competitor),
     profiles(id, full_name)
   `)
@@ -15,14 +16,14 @@ const { data: businesses } = await supabase
 
 ---
 
-<AdminLayout title="Business">
+<AdminLayout title="Aziende">
   <div class="mb-6 flex items-center justify-between">
-    <h1 class="text-2xl font-bold">Gestione Business</h1>
+    <h1 class="text-2xl font-bold">Anagrafica Aziende</h1>
     <a
       href="/regia/businesses/create"
       class="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
     >
-      Nuovo Business
+      Nuova Azienda
     </a>
   </div>
 
@@ -44,14 +45,14 @@ const { data: businesses } = await supabase
           <div class="flex items-center justify-between">
             <div>
               <span class="text-base font-medium text-gray-900">{biz.name}</span>
-              <span class="ml-2 text-xs text-gray-400">({biz.type})</span>
+              {biz.ragione_sociale && (
+                <span class="ml-2 text-sm text-gray-500">{biz.ragione_sociale}</span>
+              )}
             </div>
             <div class="flex items-center gap-2">
-              {biz.embeddings_enabled && (
-                <span class="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700">
-                  Embeddings
-                </span>
-              )}
+              <span class="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+                {biz.type}
+              </span>
               <span class="text-xs text-gray-400">
                 {new Date(biz.created_at).toLocaleDateString("it-IT")}
               </span>
@@ -59,6 +60,8 @@ const { data: businesses } = await supabase
           </div>
 
           <div class="mt-2 flex items-center gap-4 text-xs text-gray-500">
+            {biz.referente_nome && <span>Referente: {biz.referente_nome}</span>}
+            {biz.email && <span>{biz.email}</span>}
             <span>Utenti: {ownerLabel}</span>
             <span>{ownLocs.length} location</span>
             {compLocs.length > 0 && <span>{compLocs.length} competitor</span>}
@@ -69,8 +72,8 @@ const { data: businesses } = await supabase
 
     {(!businesses || businesses.length === 0) && (
       <div class="rounded-lg border border-gray-200 bg-white p-8 text-center text-gray-500">
-        <p class="text-lg font-medium">Nessun business</p>
-        <p class="mt-1 text-sm">Crea il primo business cliccando il pulsante sopra.</p>
+        <p class="text-lg font-medium">Nessuna azienda</p>
+        <p class="mt-1 text-sm">Crea la prima azienda cliccando il pulsante sopra.</p>
       </div>
     )}
   </div>
