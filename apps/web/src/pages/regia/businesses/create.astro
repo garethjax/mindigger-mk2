@@ -1,0 +1,28 @@
+---
+import AdminLayout from "@/layouts/AdminLayout.astro";
+import BusinessCreateForm from "@/components/admin/BusinessCreateForm";
+import { createSupabaseServer } from "@/lib/supabase";
+
+const supabase = createSupabaseServer(Astro.cookies, Astro.request);
+
+const [usersRes, sectorsRes] = await Promise.all([
+  supabase.from("profiles").select("id, full_name, role").eq("role", "business"),
+  supabase.from("business_sectors").select("id, name, platforms"),
+]);
+
+const googleMapsApiKey = import.meta.env.GOOGLE_MAPS_API_KEY ?? "";
+---
+
+<AdminLayout title="Nuovo Business">
+  <div class="mb-6 flex items-center gap-3">
+    <a href="/regia/businesses" class="text-gray-400 hover:text-gray-600">&larr;</a>
+    <h1 class="text-2xl font-bold">Nuovo Business</h1>
+  </div>
+
+  <BusinessCreateForm
+    client:load
+    users={usersRes.data ?? []}
+    sectors={sectorsRes.data ?? []}
+    googleMapsApiKey={googleMapsApiKey}
+  />
+</AdminLayout>

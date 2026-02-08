@@ -15,7 +15,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
     return next();
   }
 
-  const supabase = createSupabaseServer(context.cookies);
+  const supabase = createSupabaseServer(context.cookies, context.request);
 
   // Refresh session (important: this also refreshes expired tokens)
   const {

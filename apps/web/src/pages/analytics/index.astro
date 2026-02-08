@@ -3,7 +3,7 @@ import DashboardLayout from "@/layouts/DashboardLayout.astro";
 import Dashboard from "@/components/dashboard/Dashboard";
 import { createSupabaseServer } from "@/lib/supabase";
 
-const supabase = createSupabaseServer(Astro.cookies);
+const supabase = createSupabaseServer(Astro.cookies, Astro.request);
 const user = Astro.locals.user;
 
 // Load user's businesses and locations (SSR)

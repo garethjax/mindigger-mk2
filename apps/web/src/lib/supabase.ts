@@ -1,4 +1,4 @@
-import { createBrowserClient, createServerClient } from "@supabase/ssr";
+import { createBrowserClient, createServerClient, parseCookieHeader } from "@supabase/ssr";
 import type { AstroCookies } from "astro";
 
 const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
@@ -13,18 +13,19 @@ export function createSupabaseBrowser() {
 
 /**
  * Server client — used in Astro pages and middleware (SSR).
- * Reads/writes auth tokens via cookies for session persistence.
+ * Reads auth tokens from the request cookie header,
+ * writes refreshed tokens via Astro's cookies API.
  */
-export function createSupabaseServer(cookies: AstroCookies) {
+export function createSupabaseServer(cookies: AstroCookies, request?: Request) {
   return createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
       getAll() {
-        return cookies.headers().getAll("cookie").flatMap((header) =>
-          header.split(";").map((c) => {
-            const [name, ...rest] = c.trim().split("=");
-            return { name, value: rest.join("=") };
-          })
-        );
+        // Parse cookies from the raw Cookie header
+        const cookieHeader = request?.headers.get("cookie") ?? "";
+        return parseCookieHeader(cookieHeader).map((c) => ({
+          name: c.name,
+          value: c.value ?? "",
+        }));
       },
       setAll(cookiesToSet) {
         for (const { name, value, options } of cookiesToSet) {

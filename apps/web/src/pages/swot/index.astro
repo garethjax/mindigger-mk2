@@ -2,7 +2,7 @@
 import DashboardLayout from "@/layouts/DashboardLayout.astro";
 import { createSupabaseServer } from "@/lib/supabase";
 
-const supabase = createSupabaseServer(Astro.cookies);
+const supabase = createSupabaseServer(Astro.cookies, Astro.request);
 const user = Astro.locals.user;
 
 const { data: businesses } = await supabase
@@ -52,7 +52,7 @@ const PERIOD_LABELS: Record<string, string> = {
     <div class="space-y-3">
       {swotList.map((swot) => {
         const s = STATUS_LABELS[swot.status] ?? STATUS_LABELS.pending;
-        const loc = swot.locations as { name: string } | null;
+        const loc = swot.locations as unknown as { name: string } | null;
         return (
           <a
             href={swot.status === "completed" ? `/swot/${swot.id}` : "#"}

@@ -1,8 +1,5 @@
 ---
 import DashboardLayout from "@/layouts/DashboardLayout.astro";
-import { createSupabaseServer } from "@/lib/supabase";
-
-const supabase = createSupabaseServer(Astro.cookies);
 const user = Astro.locals.user;
 const profile = Astro.locals.profile;
 

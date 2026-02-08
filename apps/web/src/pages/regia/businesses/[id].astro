@@ -1,0 +1,52 @@
+---
+import AdminLayout from "@/layouts/AdminLayout.astro";
+import BusinessDetailView from "@/components/admin/BusinessDetailView";
+import { createSupabaseServer } from "@/lib/supabase";
+
+const { id } = Astro.params;
+const supabase = createSupabaseServer(Astro.cookies, Astro.request);
+
+const { data: business } = await supabase
+  .from("businesses")
+  .select("*")
+  .eq("id", id)
+  .single();
+
+if (!business) return Astro.redirect("/regia/businesses");
+
+const [locationsRes, scrapingRes, sectorsRes, ownerRes, reviewCountRes] = await Promise.all([
+  supabase
+    .from("locations")
+    .select("id, name, is_competitor, business_sector_id, created_at")
+    .eq("business_id", id)
+    .order("name"),
+  supabase
+    .from("scraping_configs")
+    .select("id, location_id, platform, status, initial_scrape_done, last_scraped_at, platform_config")
+    .in(
+      "location_id",
+      (await supabase.from("locations").select("id").eq("business_id", id)).data?.map((l) => l.id) ?? []
+    ),
+  supabase.from("business_sectors").select("id, name, platforms"),
+  supabase.from("profiles").select("id, full_name").eq("id", business.user_id).single(),
+  supabase.from("reviews").select("id", { count: "exact" }).eq("business_id", id),
+]);
+---
+
+<AdminLayout title={business.name}>
+  <div class="mb-6 flex items-center gap-3">
+    <a href="/regia/businesses" class="text-gray-400 hover:text-gray-600">&larr;</a>
+    <h1 class="text-2xl font-bold">{business.name}</h1>
+    <span class="text-sm text-gray-400">({business.type})</span>
+  </div>
+
+  <BusinessDetailView
+    client:load
+    business={business}
+    locations={locationsRes.data ?? []}
+    scrapingConfigs={scrapingRes.data ?? []}
+    sectors={sectorsRes.data ?? []}
+    ownerName={ownerRes.data?.full_name ?? business.user_id.slice(0, 8)}
+    reviewCount={reviewCountRes.count ?? 0}
+  />
+</AdminLayout>

@@ -1,8 +1,81 @@
 ---
 import AdminLayout from "@/layouts/AdminLayout.astro";
+import { createSupabaseServer } from "@/lib/supabase";
+
+const supabase = createSupabaseServer(Astro.cookies, Astro.request);
+
+const { data: businesses } = await supabase
+  .from("businesses")
+  .select(`
+    id, name, type, user_id, embeddings_enabled, created_at,
+    locations(id, name, is_competitor)
+  `)
+  .order("created_at", { ascending: false });
+
+// Get user names
+const userIds = [...new Set((businesses ?? []).map((b) => b.user_id))];
+const { data: profiles } = userIds.length > 0
+  ? await supabase.from("profiles").select("id, full_name").in("id", userIds)
+  : { data: [] };
+
+const profileMap = new Map((profiles ?? []).map((p) => [p.id, p.full_name]));
+
 ---
 
 <AdminLayout title="Business">
-  <h1 class="mb-6 text-2xl font-bold">Gestione Business</h1>
-  <p class="text-gray-500">Da implementare in Fase 5</p>
+  <div class="mb-6 flex items-center justify-between">
+    <h1 class="text-2xl font-bold">Gestione Business</h1>
+    <a
+      href="/regia/businesses/create"
+      class="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
+    >
+      Nuovo Business
+    </a>
+  </div>
+
+  <div class="space-y-3">
+    {(businesses ?? []).map((biz) => {
+      const locs = (biz.locations as { id: string; name: string; is_competitor: boolean }[]) ?? [];
+      const ownLocs = locs.filter((l) => !l.is_competitor);
+      const compLocs = locs.filter((l) => l.is_competitor);
+      const ownerName = profileMap.get(biz.user_id) ?? biz.user_id.slice(0, 8);
+
+      return (
+        <a
+          href={`/regia/businesses/${biz.id}`}
+          class="block rounded-lg border border-gray-200 bg-white p-4 transition hover:border-blue-300"
+        >
+          <div class="flex items-center justify-between">
+            <div>
+              <span class="text-base font-medium text-gray-900">{biz.name}</span>
+              <span class="ml-2 text-xs text-gray-400">({biz.type})</span>
+            </div>
+            <div class="flex items-center gap-2">
+              {biz.embeddings_enabled && (
+                <span class="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700">
+                  Embeddings
+                </span>
+              )}
+              <span class="text-xs text-gray-400">
+                {new Date(biz.created_at).toLocaleDateString("it-IT")}
+              </span>
+            </div>
+          </div>
+
+          <div class="mt-2 flex items-center gap-4 text-xs text-gray-500">
+            <span>Proprietario: {ownerName}</span>
+            <span>{ownLocs.length} location</span>
+            {compLocs.length > 0 && <span>{compLocs.length} competitor</span>}
+          </div>
+        </a>
+      );
+    })}
+
+    {(!businesses || businesses.length === 0) && (
+      <div class="rounded-lg border border-gray-200 bg-white p-8 text-center text-gray-500">
+        <p class="text-lg font-medium">Nessun business</p>
+        <p class="mt-1 text-sm">Crea il primo business cliccando il pulsante sopra.</p>
+      </div>
+    )}
+  </div>
 </AdminLayout>

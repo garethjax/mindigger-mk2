@@ -1,0 +1,23 @@
+---
+import AdminLayout from "@/layouts/AdminLayout.astro";
+import UserCreateForm from "@/components/admin/UserCreateForm";
+import { createSupabaseServer } from "@/lib/supabase";
+
+const supabase = createSupabaseServer(Astro.cookies, Astro.request);
+
+const { data: businesses } = await supabase
+  .from("businesses")
+  .select("id, name")
+  .order("name");
+---
+
+<AdminLayout title="Nuovo Utente">
+  <div class="mb-6 flex items-center gap-3">
+    <a href="/regia/users" class="text-gray-400 hover:text-gray-600">&larr;</a>
+    <h1 class="text-2xl font-bold">Nuovo Utente</h1>
+  </div>
+
+  <div class="max-w-lg">
+    <UserCreateForm client:load businesses={businesses ?? []} />
+  </div>
+</AdminLayout>

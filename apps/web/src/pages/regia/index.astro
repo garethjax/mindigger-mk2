@@ -1,8 +1,124 @@
 ---
 import AdminLayout from "@/layouts/AdminLayout.astro";
+import { createSupabaseServer } from "@/lib/supabase";
+
+const supabase = createSupabaseServer(Astro.cookies, Astro.request);
+
+// Fetch overview stats in parallel
+const [usersRes, businessesRes, locationsRes, reviewsRes, scrapingRes, batchesRes] =
+  await Promise.all([
+    supabase.from("profiles").select("id, role, account_enabled, account_locked", { count: "exact" }),
+    supabase.from("businesses").select("id", { count: "exact" }),
+    supabase.from("locations").select("id, is_competitor", { count: "exact" }),
+    supabase.from("reviews").select("id, status", { count: "exact" }),
+    supabase.from("scraping_configs").select("id, status"),
+    supabase.from("ai_batches").select("id, status, batch_type").eq("status", "in_progress"),
+  ]);
+
+const totalUsers = usersRes.count ?? 0;
+const activeUsers = usersRes.data?.filter((u) => u.account_enabled && !u.account_locked).length ?? 0;
+const adminCount = usersRes.data?.filter((u) => u.role === "admin").length ?? 0;
+
+const totalBusinesses = businessesRes.count ?? 0;
+
+const totalLocations = locationsRes.count ?? 0;
+const competitorLocations = locationsRes.data?.filter((l) => l.is_competitor).length ?? 0;
+const ownLocations = totalLocations - competitorLocations;
+
+const totalReviews = reviewsRes.count ?? 0;
+const pendingReviews = reviewsRes.data?.filter((r) => r.status === "pending").length ?? 0;
+const analyzingReviews = reviewsRes.data?.filter((r) => r.status === "analyzing").length ?? 0;
+
+const activeScrapingJobs = scrapingRes.data?.filter(
+  (s) => s.status === "elaborating" || s.status === "checking"
+).length ?? 0;
+
+const activeBatches = batchesRes.data?.length ?? 0;
+const reviewBatches = batchesRes.data?.filter((b) => b.batch_type === "reviews").length ?? 0;
+const swotBatches = batchesRes.data?.filter((b) => b.batch_type === "swot").length ?? 0;
+
+const CARDS = [
+  {
+    title: "Utenti",
+    value: totalUsers,
+    detail: `${activeUsers} attivi · ${adminCount} admin`,
+    color: "border-blue-400",
+  },
+  {
+    title: "Business",
+    value: totalBusinesses,
+    detail: `${ownLocations} location · ${competitorLocations} competitor`,
+    color: "border-green-400",
+  },
+  {
+    title: "Recensioni",
+    value: totalReviews,
+    detail: `${pendingReviews} pending · ${analyzingReviews} in analisi`,
+    color: "border-purple-400",
+  },
+  {
+    title: "Job Attivi",
+    value: activeScrapingJobs + activeBatches,
+    detail: `${activeScrapingJobs} scraping · ${reviewBatches} AI review · ${swotBatches} SWOT`,
+    color: "border-orange-400",
+  },
+];
 ---
 
 <AdminLayout title="Overview">
-  <h1 class="mb-6 text-2xl font-bold">Regia - Overview</h1>
-  <p class="text-gray-500">Pannello amministrazione - da implementare in Fase 5</p>
+  <h1 class="mb-6 text-2xl font-bold">Overview</h1>
+
+  {/* Stats Grid */}
+  <div class="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    {CARDS.map((card) => (
+      <div class={`rounded-lg border-l-4 bg-white p-5 shadow-sm ${card.color}`}>
+        <div class="text-sm font-medium text-gray-500">{card.title}</div>
+        <div class="mt-1 text-3xl font-bold text-gray-900">{card.value}</div>
+        <div class="mt-1 text-xs text-gray-400">{card.detail}</div>
+      </div>
+    ))}
+  </div>
+
+  {/* Quick Actions */}
+  <div class="mb-8">
+    <h2 class="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Azioni Rapide</h2>
+    <div class="flex flex-wrap gap-3">
+      <a
+        href="/regia/users/create"
+        class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+      >
+        Nuovo Utente
+      </a>
+      <a
+        href="/regia/businesses/create"
+        class="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
+      >
+        Nuovo Business
+      </a>
+      <a
+        href="/regia/scraping"
+        class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+      >
+        Status Scraping
+      </a>
+      <a
+        href="/regia/ai-config"
+        class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+      >
+        Config AI
+      </a>
+    </div>
+  </div>
+
+  {/* Active Jobs */}
+  {activeScrapingJobs > 0 && (
+    <div class="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
+      <h3 class="text-sm font-medium text-yellow-800">
+        {activeScrapingJobs} job di scraping in corso
+      </h3>
+      <p class="mt-1 text-xs text-yellow-600">
+        Vai alla sezione <a href="/regia/scraping" class="underline">Scraping</a> per i dettagli.
+      </p>
+    </div>
+  )}
 </AdminLayout>

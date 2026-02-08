@@ -1,4 +1,5 @@
 /// <reference types="astro/client" />
+/// <reference types="@types/google.maps" />
 
 declare namespace App {
   interface Locals {
