@@ -1,16 +1,28 @@
 ---
 import BaseLayout from "@/layouts/BaseLayout.astro";
+import LoginForm from "@/components/auth/LoginForm";
+
+const errorParam = Astro.url.searchParams.get("error");
+const errorMessages: Record<string, string> = {
+  account_disabled: "Il tuo account è stato disabilitato. Contatta l'amministratore.",
+};
 ---
 
 <BaseLayout title="Login">
   <div class="flex min-h-screen items-center justify-center">
     <div class="w-full max-w-sm space-y-6 rounded-xl bg-white p-8 shadow-lg">
-      <h1 class="text-center text-2xl font-bold">Mind Digger</h1>
-      <p class="text-center text-sm text-gray-500">Accedi alla tua dashboard</p>
-      <!-- Auth form will be a Preact island -->
-      <div id="login-form">
-        <p class="text-center text-gray-400">Caricamento...</p>
+      <div class="text-center">
+        <h1 class="text-2xl font-bold">Mind Digger</h1>
+        <p class="mt-1 text-sm text-gray-500">Accedi alla tua dashboard</p>
       </div>
+
+      {errorParam && errorMessages[errorParam] && (
+        <div class="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+          {errorMessages[errorParam]}
+        </div>
+      )}
+
+      <LoginForm client:load />
     </div>
   </div>
 </BaseLayout>

@@ -1,8 +1,90 @@
 ---
 import DashboardLayout from "@/layouts/DashboardLayout.astro";
+import { createSupabaseServer } from "@/lib/supabase";
+
+const supabase = createSupabaseServer(Astro.cookies);
+const user = Astro.locals.user;
+
+const { data: businesses } = await supabase
+  .from("businesses")
+  .select("id")
+  .eq("user_id", user.id);
+
+const businessIds = businesses?.map((b) => b.id) ?? [];
+
+const { data: swotList } = await supabase
+  .from("swot_analyses")
+  .select("id, period, status, created_at, locations(name)")
+  .in("business_id", businessIds)
+  .order("created_at", { ascending: false })
+  .limit(50);
+
+const STATUS_LABELS: Record<string, { label: string; color: string }> = {
+  pending: { label: "In attesa", color: "bg-yellow-100 text-yellow-700" },
+  analyzing: { label: "In analisi", color: "bg-blue-100 text-blue-700" },
+  completed: { label: "Completata", color: "bg-green-100 text-green-700" },
+  failed: { label: "Errore", color: "bg-red-100 text-red-700" },
+};
+
+const PERIOD_LABELS: Record<string, string> = {
+  "3": "3 mesi",
+  "6": "6 mesi",
+  "12": "12 mesi",
+  "24": "24 mesi",
+  "36": "36 mesi",
+  "48": "48 mesi",
+  "60": "60 mesi",
+};
 ---
 
 <DashboardLayout title="SWOT">
-  <h1 class="mb-6 text-2xl font-bold">Analisi SWOT</h1>
-  <p class="text-gray-500">Lista analisi SWOT - da implementare in Fase 4</p>
+  <div class="mb-6 flex items-center justify-between">
+    <h1 class="text-2xl font-bold">Analisi SWOT</h1>
+    <a
+      href="/swot/create"
+      class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+    >
+      Nuova Analisi
+    </a>
+  </div>
+
+  {swotList && swotList.length > 0 ? (
+    <div class="space-y-3">
+      {swotList.map((swot) => {
+        const s = STATUS_LABELS[swot.status] ?? STATUS_LABELS.pending;
+        const loc = swot.locations as { name: string } | null;
+        return (
+          <a
+            href={swot.status === "completed" ? `/swot/${swot.id}` : "#"}
+            class:list={[
+              "block rounded-lg border border-gray-200 bg-white p-4 transition",
+              swot.status === "completed" ? "hover:border-blue-300" : "cursor-default",
+            ]}
+          >
+            <div class="flex items-center justify-between">
+              <div>
+                <span class="font-medium">{loc?.name ?? "Location"}</span>
+                <span class="ml-2 text-sm text-gray-500">
+                  — {PERIOD_LABELS[swot.period] ?? swot.period}
+                </span>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class={`rounded-full px-2.5 py-0.5 text-xs font-medium ${s.color}`}>
+                  {s.label}
+                </span>
+                <span class="text-xs text-gray-400">
+                  {new Date(swot.created_at).toLocaleDateString("it-IT")}
+                </span>
+              </div>
+            </div>
+          </a>
+        );
+      })}
+    </div>
+  ) : (
+    <div class="rounded-lg border border-gray-200 bg-white p-8 text-center text-gray-500">
+      <p class="text-lg font-medium">Nessuna analisi SWOT</p>
+      <p class="mt-1 text-sm">Crea la tua prima analisi SWOT cliccando il pulsante sopra.</p>
+    </div>
+  )}
 </DashboardLayout>

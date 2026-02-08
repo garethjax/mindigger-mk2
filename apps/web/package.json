@@ -12,10 +12,11 @@
   "dependencies": {
     "@astrojs/preact": "^4.1.3",
     "@astrojs/vercel": "^9.0.4",
+    "@shared/types": "workspace:*",
+    "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.95.3",
     "astro": "^5.17.1",
-    "preact": "^10.28.3",
-    "@shared/types": "workspace:*"
+    "preact": "^10.28.3"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.6",

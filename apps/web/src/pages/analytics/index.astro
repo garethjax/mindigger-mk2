@@ -1,8 +1,34 @@
 ---
 import DashboardLayout from "@/layouts/DashboardLayout.astro";
+import Dashboard from "@/components/dashboard/Dashboard";
+import { createSupabaseServer } from "@/lib/supabase";
+
+const supabase = createSupabaseServer(Astro.cookies);
+const user = Astro.locals.user;
+
+// Load user's businesses and locations (SSR)
+const { data: businesses } = await supabase
+  .from("businesses")
+  .select("id")
+  .eq("user_id", user.id);
+
+const businessIds = businesses?.map((b) => b.id) ?? [];
+
+const { data: locations } = await supabase
+  .from("locations")
+  .select("id, name, is_competitor")
+  .in("business_id", businessIds)
+  .order("name");
 ---
 
 <DashboardLayout title="Analytics">
   <h1 class="mb-6 text-2xl font-bold">Analytics</h1>
-  <p class="text-gray-500">Dashboard analytics - da implementare in Fase 4</p>
+  {locations && locations.length > 0 ? (
+    <Dashboard client:load locations={locations} isCompetitor={false} />
+  ) : (
+    <div class="rounded-lg border border-gray-200 bg-white p-8 text-center text-gray-500">
+      <p class="text-lg font-medium">Nessuna location configurata</p>
+      <p class="mt-1 text-sm">Contatta l'amministratore per configurare le tue location.</p>
+    </div>
+  )}
 </DashboardLayout>

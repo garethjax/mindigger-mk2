@@ -1,0 +1,81 @@
+---
+import DashboardLayout from "@/layouts/DashboardLayout.astro";
+import { createSupabaseServer } from "@/lib/supabase";
+
+const { id } = Astro.params;
+const supabase = createSupabaseServer(Astro.cookies);
+
+const { data: swot } = await supabase
+  .from("swot_analyses")
+  .select("*, locations(name)")
+  .eq("id", id)
+  .single();
+
+if (!swot) return Astro.redirect("/swot");
+
+const results = swot.results as {
+  strengths: { points: string[] };
+  weaknesses: { points: string[] };
+  opportunities: { points: string[] };
+  threats: { points: string[] };
+  operational_suggestions: { title: string; description: string }[];
+} | null;
+
+const loc = swot.locations as { name: string } | null;
+
+const SECTIONS = [
+  { key: "strengths", title: "Punti di Forza", color: "border-green-400 bg-green-50", icon: "+" },
+  { key: "weaknesses", title: "Punti Deboli", color: "border-red-400 bg-red-50", icon: "-" },
+  { key: "opportunities", title: "Opportunit\u00e0", color: "border-blue-400 bg-blue-50", icon: "\u2191" },
+  { key: "threats", title: "Minacce", color: "border-orange-400 bg-orange-50", icon: "!" },
+] as const;
+---
+
+<DashboardLayout title={`SWOT — ${loc?.name ?? "Analisi"}`}>
+  <div class="mb-6 flex items-center gap-3">
+    <a href="/swot" class="text-gray-400 hover:text-gray-600">&larr;</a>
+    <h1 class="text-2xl font-bold">{loc?.name ?? "Analisi SWOT"}</h1>
+    <span class="text-sm text-gray-500">
+      — {swot.period} mesi
+    </span>
+  </div>
+
+  {results ? (
+    <div>
+      {/* SWOT Grid */}
+      <div class="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2">
+        {SECTIONS.map(({ key, title, color, icon }) => (
+          <div class={`rounded-lg border-l-4 p-4 ${color}`}>
+            <h2 class="mb-3 text-sm font-bold uppercase tracking-wide text-gray-700">
+              {icon} {title}
+            </h2>
+            <ul class="space-y-1.5">
+              {(results[key]?.points ?? []).map((point: string) => (
+                <li class="text-sm text-gray-700">{point}</li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+
+      {/* Operational Suggestions */}
+      {results.operational_suggestions && results.operational_suggestions.length > 0 && (
+        <div>
+          <h2 class="mb-4 text-lg font-bold">Spunti Operativi</h2>
+          <div class="space-y-3">
+            {results.operational_suggestions.map((sug: { title: string; description: string }) => (
+              <div class="rounded-lg border border-gray-200 bg-white p-4">
+                <h3 class="mb-1 font-medium">{sug.title}</h3>
+                <p class="text-sm text-gray-600">{sug.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  ) : (
+    <div class="rounded-lg border border-gray-200 bg-white p-8 text-center text-gray-500">
+      <p>Analisi in corso. Ricarica la pagina per verificare lo stato.</p>
+    </div>
+  )}
+</DashboardLayout>

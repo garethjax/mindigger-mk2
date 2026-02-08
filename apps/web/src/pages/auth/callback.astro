@@ -1,0 +1,63 @@
+---
+/**
+ * Auth callback handler.
+ * Supabase redirects here after magic link or password reset.
+ * The hash fragment contains the access token — handled client-side.
+ */
+import BaseLayout from "@/layouts/BaseLayout.astro";
+---
+
+<BaseLayout title="Autenticazione...">
+  <div class="flex min-h-screen items-center justify-center">
+    <div class="text-center">
+      <div class="mb-4 text-lg font-medium text-gray-700">Autenticazione in corso...</div>
+      <div class="text-sm text-gray-500">Sarai reindirizzato automaticamente.</div>
+    </div>
+  </div>
+</BaseLayout>
+
+<script>
+  import { createSupabaseBrowser } from "@/lib/supabase";
+
+  async function handleCallback() {
+    const supabase = createSupabaseBrowser();
+
+    // Supabase puts tokens in the URL hash fragment
+    const { data, error } = await supabase.auth.getSession();
+
+    if (error) {
+      window.location.href = "/auth/login?error=callback_failed";
+      return;
+    }
+
+    if (data.session) {
+      // Check if this is a password recovery flow
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const type = hashParams.get("type");
+
+      if (type === "recovery") {
+        // Show password reset form or redirect to settings
+        window.location.href = "/settings?reset=true";
+      } else {
+        window.location.href = "/analytics";
+      }
+    } else {
+      // Try to exchange code for session (PKCE flow)
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get("code");
+
+      if (code) {
+        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+        if (exchangeError) {
+          window.location.href = "/auth/login?error=callback_failed";
+        } else {
+          window.location.href = "/analytics";
+        }
+      } else {
+        window.location.href = "/auth/login";
+      }
+    }
+  }
+
+  handleCallback();
+</script>

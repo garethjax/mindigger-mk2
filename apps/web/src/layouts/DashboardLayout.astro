@@ -7,6 +7,8 @@ interface Props {
 
 const { title } = Astro.props;
 const currentPath = Astro.url.pathname;
+const profile = Astro.locals.profile;
+const user = Astro.locals.user;
 
 const navItems = [
   { href: "/analytics", label: "Analytics" },
@@ -18,9 +20,12 @@ const navItems = [
 
 <BaseLayout title={title}>
   <div class="flex min-h-screen">
-    <aside class="w-64 border-r border-gray-200 bg-white p-6">
-      <a href="/analytics" class="mb-8 block text-xl font-bold">Mind Digger</a>
-      <nav class="space-y-1">
+    <aside class="flex w-64 flex-col border-r border-gray-200 bg-white">
+      <div class="p-6">
+        <a href="/analytics" class="block text-xl font-bold">Mind Digger</a>
+      </div>
+
+      <nav class="flex-1 space-y-1 px-3">
         {navItems.map((item) => (
           <a
             href={item.href}
@@ -34,8 +39,37 @@ const navItems = [
             {item.label}
           </a>
         ))}
+
+        {profile?.role === "admin" && (
+          <div class="mt-6 border-t border-gray-100 pt-4">
+            <span class="px-3 text-xs font-medium uppercase tracking-wide text-gray-400">
+              Admin
+            </span>
+            <a
+              href="/regia"
+              class:list={[
+                "mt-1 block rounded-lg px-3 py-2 text-sm font-medium",
+                currentPath.startsWith("/regia")
+                  ? "bg-blue-50 text-blue-700"
+                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900",
+              ]}
+            >
+              Regia
+            </a>
+          </div>
+        )}
       </nav>
+
+      <div class="border-t border-gray-100 p-4">
+        <div class="text-sm font-medium text-gray-700">
+          {profile?.full_name ?? user?.email ?? "Utente"}
+        </div>
+        <div class="text-xs text-gray-400">
+          {profile?.role === "admin" ? "Amministratore" : "Business"}
+        </div>
+      </div>
     </aside>
+
     <main class="flex-1 p-8">
       <slot />
     </main>

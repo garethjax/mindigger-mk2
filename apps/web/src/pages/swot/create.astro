@@ -1,0 +1,27 @@
+---
+import DashboardLayout from "@/layouts/DashboardLayout.astro";
+import SwotForm from "@/components/dashboard/SwotForm";
+import { createSupabaseServer } from "@/lib/supabase";
+
+const supabase = createSupabaseServer(Astro.cookies);
+const user = Astro.locals.user;
+
+const { data: businesses } = await supabase
+  .from("businesses")
+  .select("id")
+  .eq("user_id", user.id);
+
+const businessIds = businesses?.map((b) => b.id) ?? [];
+
+const { data: locations } = await supabase
+  .from("locations")
+  .select("id, name, business_id")
+  .in("business_id", businessIds)
+  .eq("is_competitor", false)
+  .order("name");
+---
+
+<DashboardLayout title="Nuova Analisi SWOT">
+  <h1 class="mb-6 text-2xl font-bold">Nuova Analisi SWOT</h1>
+  <SwotForm client:load locations={locations ?? []} />
+</DashboardLayout>
