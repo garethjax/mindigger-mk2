@@ -2,8 +2,13 @@ import { defineMiddleware } from "astro:middleware";
 import { createSupabaseServer } from "@/lib/supabase";
 
 const PUBLIC_ROUTES = ["/auth/login", "/auth/forgot-password", "/auth/callback"];
+const BYPASS_AUTH_MIDDLEWARE = import.meta.env.DEV && import.meta.env.PUBLIC_BYPASS_AUTH === "true";
 
 export const onRequest = defineMiddleware(async (context, next) => {
+  if (BYPASS_AUTH_MIDDLEWARE) {
+    return next();
+  }
+
   const { pathname } = context.url;
 
   // Skip auth check for public routes and static assets
