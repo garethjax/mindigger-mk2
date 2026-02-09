@@ -16,7 +16,8 @@
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.95.3",
     "astro": "^5.17.1",
-    "preact": "^10.28.3"
+    "preact": "^10.28.3",
+    "uplot": "^1.6.32"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.6",
