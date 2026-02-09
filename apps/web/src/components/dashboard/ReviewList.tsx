@@ -9,6 +9,7 @@ interface Review {
   rating: number | null;
   author: string | null;
   source: string;
+  url: string | null;
   review_date: string | null;
   ai_result: {
     sentiment?: number;
@@ -31,9 +32,11 @@ const SOURCE_COLORS: Record<string, string> = {
 };
 
 function topicBadgeColor(score: number): string {
+  if (score >= 5) return "bg-green-200 text-green-900";
   if (score >= 4) return "bg-green-100 text-green-700";
   if (score >= 3) return "bg-yellow-100 text-yellow-700";
-  return "bg-red-100 text-red-700";
+  if (score >= 2) return "bg-red-100 text-red-600";
+  return "bg-red-200 text-red-800";
 }
 
 interface Props {
@@ -61,7 +64,7 @@ export default function ReviewList({ filters, businessId }: Props) {
 
     let query = supabase
       .from("reviews")
-      .select("id, title, text, rating, author, source, review_date, ai_result")
+      .select("id, title, text, rating, author, source, url, review_date, ai_result")
       .eq("status", "completed")
       .eq("business_id", businessId)
       .order("review_date", { ascending: false })
@@ -132,6 +135,16 @@ export default function ReviewList({ filters, businessId }: Props) {
                   >
                     {SOURCE_LABELS[review.source] ?? review.source}
                   </span>
+                  {review.url && (
+                    <a
+                      href={review.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="text-[10px] text-blue-500 hover:text-blue-700 hover:underline"
+                    >
+                      Vedi originale &#8599;
+                    </a>
+                  )}
                 </div>
                 <div class="text-xs text-gray-400">
                   {review.review_date ?? ""}
@@ -146,20 +159,21 @@ export default function ReviewList({ filters, businessId }: Props) {
                 <p class="text-sm text-gray-600 line-clamp-3">{review.text}</p>
               )}
 
-              <div class="mt-2 flex items-center justify-between">
-                <span class="text-xs text-gray-400">{review.author ?? "Anonimo"}</span>
-                {review.ai_result?.italian_topics && review.ai_result.italian_topics.length > 0 && (
-                  <div class="flex flex-wrap gap-1">
-                    {review.ai_result.italian_topics.slice(0, 5).map((t) => (
-                      <span
-                        key={t.italian_name}
-                        class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${topicBadgeColor(t.score)}`}
-                      >
-                        {t.italian_name} {t.score.toFixed(1)}
-                      </span>
-                    ))}
-                  </div>
-                )}
+              {review.ai_result?.italian_topics && review.ai_result.italian_topics.length > 0 && (
+                <div class="mt-2 flex flex-wrap gap-1">
+                  {review.ai_result.italian_topics.map((t) => (
+                    <span
+                      key={t.italian_name}
+                      class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${topicBadgeColor(t.score)}`}
+                    >
+                      {t.italian_name}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div class="mt-2 text-xs text-gray-400">
+                {review.author ?? "Anonimo"}
               </div>
             </div>
           ))}
