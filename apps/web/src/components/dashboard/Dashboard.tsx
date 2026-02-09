@@ -59,7 +59,7 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
     distribution: [],
   });
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
-  const [aggregation, setAggregation] = useState<"day" | "week" | "month">("week");
+  const [aggregation, setAggregation] = useState<"week" | "month">("week");
 
   const supabase = createSupabaseBrowser();
 

@@ -10,8 +10,8 @@ export interface RatingPeriodPoint {
 
 interface Props {
   data: RatingPeriodPoint[];
-  aggregation: "day" | "week" | "month";
-  onAggregationChange: (agg: "day" | "week" | "month") => void;
+  aggregation: "week" | "month";
+  onAggregationChange: (agg: "week" | "month") => void;
 }
 
 function toEpochSeconds(isoDate: string): number {
@@ -149,7 +149,6 @@ export default function ReviewAreaChart({ data, aggregation, onAggregationChange
         <div class="text-sm font-semibold text-gray-900">Distribuzione Recensioni</div>
         <div class="inline-flex overflow-hidden rounded-md border border-gray-200">
           {([
-            ["day", "Giorno"],
             ["week", "Settimana"],
             ["month", "Mese"],
           ] as const).map(([agg, label]) => (

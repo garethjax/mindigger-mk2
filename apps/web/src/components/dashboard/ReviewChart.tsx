@@ -10,8 +10,8 @@ interface ChartDataPoint {
 
 interface Props {
   data: ChartDataPoint[];
-  aggregation: "day" | "week" | "month";
-  onAggregationChange: (agg: "day" | "week" | "month") => void;
+  aggregation: "week" | "month";
+  onAggregationChange: (agg: "week" | "month") => void;
   title?: string;
   showRatingSeries?: boolean;
 }
@@ -187,7 +187,6 @@ export default function ReviewChart({
         <div class="text-sm font-semibold text-gray-900">{title}</div>
         <div class="inline-flex overflow-hidden rounded-md border border-gray-200">
           {([
-            ["day", "Giorno"],
             ["week", "Settimana"],
             ["month", "Mese"],
           ] as const).map(([agg, label]) => (

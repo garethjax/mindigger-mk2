@@ -7,8 +7,8 @@ interface Point {
 
 interface Props {
   data: Point[];
-  aggregation: "day" | "week" | "month";
-  onAggregationChange: (agg: "day" | "week" | "month") => void;
+  aggregation: "week" | "month";
+  onAggregationChange: (agg: "week" | "month") => void;
 }
 
 function toLabel(date: string, aggregation: Props["aggregation"]): string {
@@ -26,8 +26,7 @@ function toLabel(date: string, aggregation: Props["aggregation"]): string {
 function labelModulo(aggregation: Props["aggregation"], n: number): number {
   if (n <= 0) return 1;
   if (aggregation === "month") return Math.max(1, Math.ceil(n / 6));
-  if (aggregation === "week") return Math.max(1, Math.ceil(n / 10));
-  return Math.max(1, Math.ceil(n / 12));
+  return Math.max(1, Math.ceil(n / 10));
 }
 
 export default function ReviewDistributionBars({ data, aggregation, onAggregationChange }: Props) {
@@ -64,13 +63,11 @@ export default function ReviewDistributionBars({ data, aggregation, onAggregatio
     if (n <= 0 || plotWidth <= 0) return { barW: 24, gapPx: 4 };
 
     // Dense data needs tighter spacing.
-    const gap =
-      aggregation === "day" ? (n > 90 ? 1 : n > 45 ? 2 : 4) : aggregation === "week" ? (n > 40 ? 2 : 6) : 10;
+    const gap = aggregation === "week" ? (n > 40 ? 2 : 6) : 10;
 
     const available = Math.max(0, plotWidth - gap * (n - 1));
     const w = Math.floor(available / n);
 
-    // 1px bars are acceptable for "Giorno" when there are many buckets; prefer no scrolling.
     const clamped = Math.max(1, w);
     return { barW: clamped, gapPx: gap };
   }, [aggregation, plotWidth, points.length]);
@@ -81,7 +78,6 @@ export default function ReviewDistributionBars({ data, aggregation, onAggregatio
         <div class="text-sm font-semibold text-gray-900">Distribuzione Recensioni</div>
         <div class="inline-flex overflow-hidden rounded-md border border-gray-200">
           {([
-            ["day", "Giorno"],
             ["week", "Settimana"],
             ["month", "Mese"],
           ] as const).map(([agg, label]) => (
