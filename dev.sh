@@ -53,7 +53,7 @@ fi
 
 # Show Supabase URLs
 echo ""
-supabase status | head -20
+supabase status || true
 echo ""
 
 # --- 3. Install deps if needed ---
