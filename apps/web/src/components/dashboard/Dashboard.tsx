@@ -4,7 +4,7 @@ import FilterBar, { type FilterState } from "./FilterBar";
 import TopCards, { type SentimentCard } from "./TopCards";
 import ReviewList from "./ReviewList";
 import ReviewChart from "./ReviewChart";
-import ReviewDistributionBars from "./ReviewDistributionBars";
+import ReviewDistributionChart from "./ReviewDistributionChart";
 
 interface Location {
   id: string;
@@ -180,7 +180,7 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
           aggregation={aggregation}
           onAggregationChange={setAggregation}
         />
-        <ReviewDistributionBars
+        <ReviewDistributionChart
           data={chartData.map((d) => ({ date: d.date, count: d.count }))}
           aggregation={aggregation}
           onAggregationChange={setAggregation}
