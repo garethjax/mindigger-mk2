@@ -64,7 +64,8 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
 
   const supabase = createSupabaseBrowser();
 
-  const filterDeps = [businessId, filters.locationId, filters.dateFrom, filters.dateTo, filters.source];
+  const ratingsKey = (filters.ratings ?? [5, 4, 3, 2, 1]).join(",");
+  const filterDeps = [businessId, filters.locationId, filters.dateFrom, filters.dateTo, filters.source, ratingsKey];
 
   useEffect(() => {
     loadStats();
@@ -117,10 +118,12 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
       p_date_from: filters.dateFrom || undefined,
       p_date_to: filters.dateTo || undefined,
       p_source: filters.source ?? undefined,
+      p_ratings: filters.ratings ?? undefined,
       p_granularity: aggregation,
     });
 
     if (error || !data) {
+      if (error) console.error("reviews_by_period rpc error", error);
       setChartData([]);
       return;
     }
@@ -145,16 +148,20 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
     });
 
     if (error || !data) {
+      if (error) console.error("reviews_by_rating_period rpc error", error);
       setAreaData([]);
       return;
     }
 
+    const enabled = new Set(filters.ratings ?? [5, 4, 3, 2, 1]);
     setAreaData(
-      (data as { period: string; rating: number; count: number }[]).map((row) => ({
-        date: row.period,
-        rating: Number(row.rating),
-        count: Number(row.count),
-      })),
+      (data as { period: string; rating: number; count: number }[])
+        .map((row) => ({
+          date: row.period,
+          rating: Number(row.rating),
+          count: Number(row.count),
+        }))
+        .filter((row) => enabled.has(row.rating)),
     );
   }
 

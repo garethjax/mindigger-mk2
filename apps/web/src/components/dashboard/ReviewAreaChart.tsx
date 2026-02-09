@@ -24,7 +24,9 @@ const BANDS = [
 ];
 
 function toEpochSeconds(isoDate: string): number {
-  const t = Date.parse(`${isoDate}T00:00:00Z`);
+  // Accept either "YYYY-MM-DD" or full ISO timestamps.
+  const v = isoDate.includes("T") ? isoDate : `${isoDate}T00:00:00Z`;
+  const t = Date.parse(v);
   return Math.floor(t / 1000);
 }
 

@@ -17,8 +17,9 @@ interface Props {
 type UPlotData = [number[], (number | null)[], (number | null)[]];
 
 function toEpochSeconds(isoDate: string): number {
-  // "YYYY-MM-DD" parses as UTC per ES spec; keep it explicit and stable.
-  const t = Date.parse(`${isoDate}T00:00:00Z`);
+  // Accept either "YYYY-MM-DD" or full ISO timestamps.
+  const v = isoDate.includes("T") ? isoDate : `${isoDate}T00:00:00Z`;
+  const t = Date.parse(v);
   return Math.floor(t / 1000);
 }
 
@@ -180,4 +181,3 @@ export default function ReviewChart({ data, aggregation, onAggregationChange }: 
     </div>
   );
 }
-
