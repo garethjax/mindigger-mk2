@@ -174,7 +174,7 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
         sentiments={sentiments}
       />
 
-      <div class="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div class="mb-6 grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
         <ReviewChart
           data={chartData}
           aggregation={aggregation}
