@@ -23,6 +23,12 @@ function toLabel(date: string, aggregation: Props["aggregation"]): string {
   return `${d}/${m}`;
 }
 
+function labelModulo(aggregation: Props["aggregation"], n: number): number {
+  if (aggregation === "month") return 1;
+  if (aggregation === "week") return Math.max(1, Math.ceil(n / 10));
+  return Math.max(1, Math.ceil(n / 12));
+}
+
 export default function ReviewDistributionBars({ data, aggregation, onAggregationChange }: Props) {
   const { points, maxCount } = useMemo(() => {
     const pts = [...data].sort((a, b) => a.date.localeCompare(b.date));
@@ -73,12 +79,8 @@ export default function ReviewDistributionBars({ data, aggregation, onAggregatio
                   maxCount > 0 && count > 0 ? Math.max(1, Math.round((count / maxCount) * BAR_AREA_PX)) : 0;
 
                 // Prevent label overlap on dense ranges.
-                const showLabel =
-                  aggregation === "month"
-                    ? idx % 1 === 0
-                    : aggregation === "week"
-                      ? idx % 2 === 0
-                      : idx % 3 === 0;
+                const mod = labelModulo(aggregation, points.length);
+                const showLabel = idx % mod === 0;
 
                 return (
                   <div key={p.date} class="flex w-6 flex-col items-center justify-end">
