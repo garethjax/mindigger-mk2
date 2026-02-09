@@ -1,5 +1,4 @@
 import { useState, useEffect } from "preact/hooks";
-import { createSupabaseBrowser } from "@/lib/supabase";
 
 interface Location {
   id: string;
@@ -7,20 +6,32 @@ interface Location {
   is_competitor: boolean;
 }
 
+interface Category {
+  id: string;
+  name: string;
+}
+
 interface Props {
   locations: Location[];
+  categories?: Category[];
   isCompetitor?: boolean;
   onFilterChange: (filters: FilterState) => void;
 }
 
 export interface FilterState {
   locationId: string | null;
+  categoryId: string | null;
   dateFrom: string;
   dateTo: string;
   source: string | null;
 }
 
-export default function FilterBar({ locations, isCompetitor = false, onFilterChange }: Props) {
+export default function FilterBar({
+  locations,
+  categories = [],
+  isCompetitor = false,
+  onFilterChange,
+}: Props) {
   const filtered = locations.filter((l) => l.is_competitor === isCompetitor);
 
   const today = new Date().toISOString().slice(0, 10);
@@ -28,24 +39,26 @@ export default function FilterBar({ locations, isCompetitor = false, onFilterCha
     .toISOString()
     .slice(0, 10);
 
-  const [locationId, setLocationId] = useState<string | null>(filtered[0]?.id ?? null);
+  const [locationId, setLocationId] = useState<string | null>(null);
+  const [categoryId, setCategoryId] = useState<string | null>(null);
   const [dateFrom, setDateFrom] = useState(sixMonthsAgo);
   const [dateTo, setDateTo] = useState(today);
   const [source, setSource] = useState<string | null>(null);
 
   useEffect(() => {
-    onFilterChange({ locationId, dateFrom, dateTo, source });
-  }, [locationId, dateFrom, dateTo, source]);
+    onFilterChange({ locationId, categoryId, dateFrom, dateTo, source });
+  }, [locationId, categoryId, dateFrom, dateTo, source]);
 
   return (
     <div class="mb-6 flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 bg-white p-4">
       <div class="min-w-[180px]">
-        <label class="mb-1 block text-xs font-medium text-gray-500">Location</label>
+        <label class="mb-1 block text-xs font-medium text-gray-500">Sedi</label>
         <select
           value={locationId ?? ""}
           onChange={(e) => setLocationId((e.target as HTMLSelectElement).value || null)}
           class="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm"
         >
+          <option value="">Tutte le sedi</option>
           {filtered.map((loc) => (
             <option key={loc.id} value={loc.id}>
               {loc.name}
@@ -54,8 +67,24 @@ export default function FilterBar({ locations, isCompetitor = false, onFilterCha
         </select>
       </div>
 
+      <div class="min-w-[180px]">
+        <label class="mb-1 block text-xs font-medium text-gray-500">Argomento</label>
+        <select
+          value={categoryId ?? ""}
+          onChange={(e) => setCategoryId((e.target as HTMLSelectElement).value || null)}
+          class="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+        >
+          <option value="">Tutti gli argomenti</option>
+          {categories.map((cat) => (
+            <option key={cat.id} value={cat.id}>
+              {cat.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <div>
-        <label class="mb-1 block text-xs font-medium text-gray-500">Da</label>
+        <label class="mb-1 block text-xs font-medium text-gray-500">Data di Inizio</label>
         <input
           type="date"
           value={dateFrom}
@@ -65,7 +94,7 @@ export default function FilterBar({ locations, isCompetitor = false, onFilterCha
       </div>
 
       <div>
-        <label class="mb-1 block text-xs font-medium text-gray-500">A</label>
+        <label class="mb-1 block text-xs font-medium text-gray-500">Data di Fine</label>
         <input
           type="date"
           value={dateTo}
