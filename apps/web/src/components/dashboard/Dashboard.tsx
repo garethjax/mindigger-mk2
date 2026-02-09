@@ -4,7 +4,6 @@ import FilterBar, { type FilterState } from "./FilterBar";
 import TopCards, { type SentimentCard } from "./TopCards";
 import ReviewList from "./ReviewList";
 import ReviewChart from "./ReviewChart";
-import ReviewAreaChart, { type RatingPeriodPoint } from "./ReviewAreaChart";
 
 interface Location {
   id: string;
@@ -59,7 +58,6 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
     distribution: [],
   });
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
-  const [areaData, setAreaData] = useState<RatingPeriodPoint[]>([]);
   const [aggregation, setAggregation] = useState<"day" | "week" | "month">("week");
 
   const supabase = createSupabaseBrowser();
@@ -73,7 +71,6 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
 
   useEffect(() => {
     loadChart();
-    loadAreaChart();
   }, [...filterDeps, aggregation]);
 
   async function loadStats() {
@@ -137,34 +134,6 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
     );
   }
 
-  async function loadAreaChart() {
-    const { data, error } = await supabase.rpc("reviews_by_rating_period", {
-      p_business_id: businessId,
-      p_location_id: filters.locationId ?? undefined,
-      p_date_from: filters.dateFrom || undefined,
-      p_date_to: filters.dateTo || undefined,
-      p_source: filters.source ?? undefined,
-      p_granularity: aggregation,
-    });
-
-    if (error || !data) {
-      if (error) console.error("reviews_by_rating_period rpc error", error);
-      setAreaData([]);
-      return;
-    }
-
-    const enabled = new Set(filters.ratings ?? [5, 4, 3, 2, 1]);
-    setAreaData(
-      (data as { period: string; rating: number; count: number }[])
-        .map((row) => ({
-          date: row.period,
-          rating: Number(row.rating),
-          count: Number(row.count),
-        }))
-        .filter((row) => enabled.has(row.rating)),
-    );
-  }
-
   const enabledRatings = new Set(filters.ratings ?? [5, 4, 3, 2, 1]);
   const enabledTotal = stats.distribution.reduce(
     (acc, d) => (enabledRatings.has(d.rating) ? acc + d.count : acc),
@@ -210,10 +179,12 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
           aggregation={aggregation}
           onAggregationChange={setAggregation}
         />
-        <ReviewAreaChart
-          data={areaData}
+        <ReviewChart
+          title="Distribuzione Recensioni"
+          data={chartData.map((d) => ({ date: d.date, count: d.count }))}
           aggregation={aggregation}
           onAggregationChange={setAggregation}
+          showRatingSeries={false}
         />
       </div>
 
