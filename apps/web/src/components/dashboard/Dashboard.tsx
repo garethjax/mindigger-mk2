@@ -4,7 +4,7 @@ import FilterBar, { type FilterState } from "./FilterBar";
 import TopCards, { type SentimentCard } from "./TopCards";
 import ReviewList from "./ReviewList";
 import ReviewChart from "./ReviewChart";
-import ReviewHeatmap from "./ReviewHeatmap";
+import ReviewAreaChart, { type RatingPeriodPoint } from "./ReviewAreaChart";
 
 interface Location {
   id: string;
@@ -36,12 +36,6 @@ interface ChartDataPoint {
   avgRating: number;
 }
 
-interface HeatmapCell {
-  day: number;
-  hour: number;
-  count: number;
-}
-
 const SENTIMENTS: Array<{ rating: number; label: string; color: string; ratingRange: [number, number] }> = [
   { rating: 5, label: "Eccellente", color: "bg-green-500", ratingRange: [5, 5] },
   { rating: 4, label: "Buono", color: "bg-lime-500", ratingRange: [4, 4] },
@@ -65,22 +59,20 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
     distribution: [],
   });
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
+  const [areaData, setAreaData] = useState<RatingPeriodPoint[]>([]);
   const [aggregation, setAggregation] = useState<"day" | "week" | "month">("week");
-  const [heatmapData, setHeatmapData] = useState<HeatmapCell[]>([]);
-  const [heatmapMax, setHeatmapMax] = useState(0);
 
   const supabase = createSupabaseBrowser();
 
-  // Shared filter params for all data fetches
   const filterDeps = [businessId, filters.locationId, filters.dateFrom, filters.dateTo, filters.source];
 
   useEffect(() => {
     loadStats();
-    loadHeatmap();
   }, filterDeps);
 
   useEffect(() => {
     loadChart();
+    loadAreaChart();
   }, [...filterDeps, aggregation]);
 
   async function loadStats() {
@@ -142,29 +134,28 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
     );
   }
 
-  async function loadHeatmap() {
-    const { data, error } = await supabase.rpc("heatmap_data", {
+  async function loadAreaChart() {
+    const { data, error } = await supabase.rpc("reviews_by_rating_period", {
       p_business_id: businessId,
       p_location_id: filters.locationId ?? undefined,
       p_date_from: filters.dateFrom || undefined,
       p_date_to: filters.dateTo || undefined,
       p_source: filters.source ?? undefined,
+      p_granularity: aggregation,
     });
 
     if (error || !data) {
-      setHeatmapData([]);
-      setHeatmapMax(0);
+      setAreaData([]);
       return;
     }
 
-    const cells = (data as { day_of_week: number; hour: number; count: number }[]).map((row) => ({
-      day: Number(row.day_of_week),
-      hour: Number(row.hour),
-      count: Number(row.count),
-    }));
-    const max = cells.reduce((m, c) => Math.max(m, c.count), 0);
-    setHeatmapData(cells);
-    setHeatmapMax(max);
+    setAreaData(
+      (data as { period: string; rating: number; count: number }[]).map((row) => ({
+        date: row.period,
+        rating: Number(row.rating),
+        count: Number(row.count),
+      })),
+    );
   }
 
   const enabledRatings = new Set(filters.ratings ?? [5, 4, 3, 2, 1]);
@@ -212,7 +203,11 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
           aggregation={aggregation}
           onAggregationChange={setAggregation}
         />
-        <ReviewHeatmap data={heatmapData} maxCount={heatmapMax} />
+        <ReviewAreaChart
+          data={areaData}
+          aggregation={aggregation}
+          onAggregationChange={setAggregation}
+        />
       </div>
 
       <ReviewList filters={filters} businessId={businessId} />
