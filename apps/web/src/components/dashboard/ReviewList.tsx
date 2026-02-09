@@ -38,11 +38,12 @@ function topicBadgeColor(score: number): string {
 
 interface Props {
   filters: FilterState;
+  businessId: string;
 }
 
 const PAGE_SIZE = 20;
 
-export default function ReviewList({ filters }: Props) {
+export default function ReviewList({ filters, businessId }: Props) {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
@@ -62,6 +63,7 @@ export default function ReviewList({ filters }: Props) {
       .from("reviews")
       .select("id, title, text, rating, author, source, review_date, ai_result")
       .eq("status", "completed")
+      .eq("business_id", businessId)
       .order("review_date", { ascending: false })
       .range(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE - 1);
 
@@ -83,8 +85,7 @@ export default function ReviewList({ filters }: Props) {
 
   useEffect(() => {
     loadReviews(true);
-  // TODO(D1): add categoryId filter to query, then add filters.categoryId to this dependency array
-  }, [filters.locationId, filters.source, filters.dateFrom, filters.dateTo, ratingsKey]);
+  }, [businessId, filters.locationId, filters.source, filters.dateFrom, filters.dateTo, ratingsKey]);
 
   function loadMore() {
     setPage((p) => p + 1);

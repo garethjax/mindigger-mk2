@@ -3,6 +3,8 @@ import { createSupabaseBrowser } from "@/lib/supabase";
 import FilterBar, { type FilterState } from "./FilterBar";
 import TopCards, { type SentimentCard } from "./TopCards";
 import ReviewList from "./ReviewList";
+import ReviewChart from "./ReviewChart";
+import ReviewHeatmap from "./ReviewHeatmap";
 
 interface Location {
   id: string;
@@ -10,8 +12,15 @@ interface Location {
   is_competitor: boolean;
 }
 
+interface Category {
+  id: string;
+  name: string;
+}
+
 interface Props {
   locations: Location[];
+  categories?: Category[];
+  businessId: string;
   isCompetitor?: boolean;
 }
 
@@ -19,6 +28,18 @@ interface Stats {
   totalReviews: number;
   avgRating: number;
   distribution: { rating: number; count: number; percentage: number }[];
+}
+
+interface ChartDataPoint {
+  date: string;
+  count: number;
+  avgRating: number;
+}
+
+interface HeatmapCell {
+  day: number;
+  hour: number;
+  count: number;
 }
 
 const SENTIMENTS: Array<{ rating: number; label: string; color: string; ratingRange: [number, number] }> = [
@@ -29,7 +50,7 @@ const SENTIMENTS: Array<{ rating: number; label: string; color: string; ratingRa
   { rating: 1, label: "Molto Negativo", color: "bg-red-500", ratingRange: [1, 1] },
 ];
 
-export default function Dashboard({ locations, isCompetitor = false }: Props) {
+export default function Dashboard({ locations, categories = [], businessId, isCompetitor = false }: Props) {
   const [filters, setFilters] = useState<FilterState>({
     locationId: null,
     categoryId: null,
@@ -43,21 +64,33 @@ export default function Dashboard({ locations, isCompetitor = false }: Props) {
     avgRating: 0,
     distribution: [],
   });
+  const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
+  const [aggregation, setAggregation] = useState<"day" | "week" | "month">("week");
+  const [heatmapData, setHeatmapData] = useState<HeatmapCell[]>([]);
+  const [heatmapMax, setHeatmapMax] = useState(0);
 
   const supabase = createSupabaseBrowser();
 
+  // Shared filter params for all data fetches
+  const filterDeps = [businessId, filters.locationId, filters.dateFrom, filters.dateTo, filters.source];
+
   useEffect(() => {
-    if (!filters.locationId) return;
     loadStats();
-  }, [filters.locationId, filters.dateFrom, filters.dateTo, filters.source]);
+    loadHeatmap();
+  }, filterDeps);
+
+  useEffect(() => {
+    loadChart();
+  }, [...filterDeps, aggregation]);
 
   async function loadStats() {
     let query = supabase
       .from("reviews")
       .select("rating")
       .eq("status", "completed")
-      .eq("location_id", filters.locationId!);
+      .eq("business_id", businessId);
 
+    if (filters.locationId) query = query.eq("location_id", filters.locationId);
     if (filters.source) query = query.eq("source", filters.source);
     if (filters.dateFrom) query = query.gte("review_date", filters.dateFrom);
     if (filters.dateTo) query = query.lte("review_date", filters.dateTo);
@@ -70,7 +103,6 @@ export default function Dashboard({ locations, isCompetitor = false }: Props) {
     const sum = data.reduce((acc, r) => acc + (r.rating ?? 0), 0);
     const avg = total > 0 ? sum / total : 0;
 
-    // Count per rating
     const counts = [0, 0, 0, 0, 0, 0]; // index 0 unused
     for (const r of data) {
       const rating = r.rating ?? 0;
@@ -84,6 +116,55 @@ export default function Dashboard({ locations, isCompetitor = false }: Props) {
     }));
 
     setStats({ totalReviews: total, avgRating: avg, distribution });
+  }
+
+  async function loadChart() {
+    const { data, error } = await supabase.rpc("reviews_by_period", {
+      p_business_id: businessId,
+      p_location_id: filters.locationId ?? undefined,
+      p_date_from: filters.dateFrom || undefined,
+      p_date_to: filters.dateTo || undefined,
+      p_source: filters.source ?? undefined,
+      p_granularity: aggregation,
+    });
+
+    if (error || !data) {
+      setChartData([]);
+      return;
+    }
+
+    setChartData(
+      (data as { period: string; count: number; avg_rating: number }[]).map((row) => ({
+        date: row.period,
+        count: Number(row.count),
+        avgRating: Number(row.avg_rating),
+      })),
+    );
+  }
+
+  async function loadHeatmap() {
+    const { data, error } = await supabase.rpc("heatmap_data", {
+      p_business_id: businessId,
+      p_location_id: filters.locationId ?? undefined,
+      p_date_from: filters.dateFrom || undefined,
+      p_date_to: filters.dateTo || undefined,
+      p_source: filters.source ?? undefined,
+    });
+
+    if (error || !data) {
+      setHeatmapData([]);
+      setHeatmapMax(0);
+      return;
+    }
+
+    const cells = (data as { day_of_week: number; hour: number; count: number }[]).map((row) => ({
+      day: Number(row.day_of_week),
+      hour: Number(row.hour),
+      count: Number(row.count),
+    }));
+    const max = cells.reduce((m, c) => Math.max(m, c.count), 0);
+    setHeatmapData(cells);
+    setHeatmapMax(max);
   }
 
   const enabledRatings = new Set(filters.ratings ?? [5, 4, 3, 2, 1]);
@@ -114,6 +195,7 @@ export default function Dashboard({ locations, isCompetitor = false }: Props) {
     <div>
       <FilterBar
         locations={locations}
+        categories={categories}
         isCompetitor={isCompetitor}
         onFilterChange={setFilters}
       />
@@ -124,7 +206,16 @@ export default function Dashboard({ locations, isCompetitor = false }: Props) {
         sentiments={sentiments}
       />
 
-      <ReviewList filters={filters} />
+      <div class="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <ReviewChart
+          data={chartData}
+          aggregation={aggregation}
+          onAggregationChange={setAggregation}
+        />
+        <ReviewHeatmap data={heatmapData} maxCount={heatmapMax} />
+      </div>
+
+      <ReviewList filters={filters} businessId={businessId} />
     </div>
   );
 }

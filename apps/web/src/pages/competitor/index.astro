@@ -15,12 +15,26 @@ const { data: locations } = businessId
       .eq("is_competitor", true)
       .order("name")
   : { data: [] };
+
+// Fetch categories for the business's sector(s)
+const { data: categories } = businessId
+  ? await supabase
+      .from("categories")
+      .select("id, name")
+      .order("name")
+  : { data: [] };
 ---
 
 <DashboardLayout title="Competitor">
   <h1 class="mb-6 text-2xl font-bold">Analisi Competitor</h1>
-  {locations && locations.length > 0 ? (
-    <Dashboard client:load locations={locations} isCompetitor={true} />
+  {businessId && locations && locations.length > 0 ? (
+    <Dashboard
+      client:load
+      locations={locations}
+      categories={categories ?? []}
+      businessId={businessId}
+      isCompetitor={true}
+    />
   ) : (
     <div class="rounded-lg border border-gray-200 bg-white p-8 text-center text-gray-500">
       <p class="text-lg font-medium">Nessun competitor configurato</p>
