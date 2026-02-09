@@ -4,6 +4,7 @@ export interface SentimentCard {
   percentage: number;
   color: string;
   ratingRange: [number, number];
+  enabled: boolean;
 }
 
 interface Props {
@@ -50,14 +51,28 @@ export default function TopCards({ totalReviews, avgRating, sentiments = [], per
 
       {/* Sentiment Cards */}
       {sentiments.map((s) => (
-        <div key={s.label} class="rounded-lg border border-gray-200 bg-white p-4">
-          <div class="text-xs font-medium text-gray-500">{s.label}</div>
+        <div
+          key={s.label}
+          class={`rounded-lg border border-gray-200 bg-white p-4 ${s.enabled ? "" : "opacity-40"}`}
+        >
+          <div class="flex items-center justify-between gap-2">
+            <div class="text-xs font-medium text-gray-500">{s.label}</div>
+            {!s.enabled && (
+              <span class="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">
+                Escluso
+              </span>
+            )}
+          </div>
           <div class="mt-1 text-2xl font-bold">{s.count.toLocaleString("it-IT")}</div>
-          <div class="mt-1 text-xs text-gray-400">{s.percentage.toFixed(0)}% del totale</div>
+          {s.enabled ? (
+            <div class="mt-1 text-xs text-gray-400">{s.percentage.toFixed(0)}% del totale</div>
+          ) : (
+            <div class="mt-1 text-xs text-gray-400">Escluso dal conteggio</div>
+          )}
           <div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
             <div
-              class={`h-full rounded-full ${s.color}`}
-              style={{ width: `${s.percentage}%` }}
+              class={`h-full rounded-full ${s.enabled ? s.color : "bg-gray-200"}`}
+              style={{ width: `${s.enabled ? s.percentage : 0}%` }}
             />
           </div>
         </div>

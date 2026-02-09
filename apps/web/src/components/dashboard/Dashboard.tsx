@@ -1,7 +1,7 @@
 import { useState, useEffect } from "preact/hooks";
 import { createSupabaseBrowser } from "@/lib/supabase";
 import FilterBar, { type FilterState } from "./FilterBar";
-import TopCards from "./TopCards";
+import TopCards, { type SentimentCard } from "./TopCards";
 import ReviewList from "./ReviewList";
 
 interface Location {
@@ -21,10 +21,19 @@ interface Stats {
   distribution: { rating: number; count: number; percentage: number }[];
 }
 
+const SENTIMENTS: Array<{ rating: number; label: string; color: string; ratingRange: [number, number] }> = [
+  { rating: 5, label: "Eccellente", color: "bg-green-500", ratingRange: [5, 5] },
+  { rating: 4, label: "Buono", color: "bg-lime-500", ratingRange: [4, 4] },
+  { rating: 3, label: "Neutro", color: "bg-yellow-500", ratingRange: [3, 3] },
+  { rating: 2, label: "Negativo", color: "bg-orange-500", ratingRange: [2, 2] },
+  { rating: 1, label: "Molto Negativo", color: "bg-red-500", ratingRange: [1, 1] },
+];
+
 export default function Dashboard({ locations, isCompetitor = false }: Props) {
   const [filters, setFilters] = useState<FilterState>({
     locationId: null,
     categoryId: null,
+    ratings: [5, 4, 3, 2, 1],
     dateFrom: "",
     dateTo: "",
     source: null,
@@ -77,6 +86,30 @@ export default function Dashboard({ locations, isCompetitor = false }: Props) {
     setStats({ totalReviews: total, avgRating: avg, distribution });
   }
 
+  const enabledRatings = new Set(filters.ratings ?? [5, 4, 3, 2, 1]);
+  const enabledTotal = stats.distribution.reduce(
+    (acc, d) => (enabledRatings.has(d.rating) ? acc + d.count : acc),
+    0,
+  );
+  const enabledSum = stats.distribution.reduce(
+    (acc, d) => (enabledRatings.has(d.rating) ? acc + d.rating * d.count : acc),
+    0,
+  );
+  const enabledAvg = enabledTotal > 0 ? enabledSum / enabledTotal : 0;
+
+  const sentiments: SentimentCard[] = SENTIMENTS.map((s) => {
+    const d = stats.distribution.find((x) => x.rating === s.rating);
+    const enabled = enabledRatings.has(s.rating);
+    return {
+      label: s.label,
+      count: d?.count ?? 0,
+      percentage: enabledTotal > 0 && enabled ? ((d?.count ?? 0) / enabledTotal) * 100 : 0,
+      color: s.color,
+      ratingRange: s.ratingRange,
+      enabled,
+    };
+  });
+
   return (
     <div>
       <FilterBar
@@ -86,9 +119,9 @@ export default function Dashboard({ locations, isCompetitor = false }: Props) {
       />
 
       <TopCards
-        totalReviews={stats.totalReviews}
-        avgRating={stats.avgRating}
-        distribution={stats.distribution}
+        totalReviews={enabledTotal}
+        avgRating={enabledAvg}
+        sentiments={sentiments}
       />
 
       <ReviewList filters={filters} />

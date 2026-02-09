@@ -47,9 +47,12 @@ export default function ReviewList({ filters }: Props) {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
-  const [starFilter, setStarFilter] = useState<number | null>(null);
 
   const supabase = createSupabaseBrowser();
+
+  const ratings = filters.ratings ?? [5, 4, 3, 2, 1];
+  const ratingsKey = ratings.join(",");
+  const filterAllRatings = ratings.length === 5;
 
   async function loadReviews(reset = false) {
     setLoading(true);
@@ -66,7 +69,7 @@ export default function ReviewList({ filters }: Props) {
     if (filters.source) query = query.eq("source", filters.source);
     if (filters.dateFrom) query = query.gte("review_date", filters.dateFrom);
     if (filters.dateTo) query = query.lte("review_date", filters.dateTo);
-    if (starFilter != null) query = query.eq("rating", starFilter);
+    if (!filterAllRatings) query = query.in("rating", ratings);
 
     const { data, error } = await query;
 
@@ -81,7 +84,7 @@ export default function ReviewList({ filters }: Props) {
   useEffect(() => {
     loadReviews(true);
   // TODO(D1): add categoryId filter to query, then add filters.categoryId to this dependency array
-  }, [filters.locationId, filters.source, filters.dateFrom, filters.dateTo, starFilter]);
+  }, [filters.locationId, filters.source, filters.dateFrom, filters.dateTo, ratingsKey]);
 
   function loadMore() {
     setPage((p) => p + 1);
@@ -113,40 +116,6 @@ export default function ReviewList({ filters }: Props) {
   return (
     <div>
       <h2 class="mb-3 text-lg font-semibold">Recensioni</h2>
-
-      {/* Star filter bar */}
-      <div class="mb-4 flex flex-wrap gap-1.5">
-        <button
-          onClick={() => setStarFilter(null)}
-          class={`rounded-md border px-3 py-1 text-sm font-medium transition-colors ${
-            starFilter == null
-              ? "border-gray-800 bg-gray-800 text-white"
-              : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
-          }`}
-        >
-          Tutte
-        </button>
-        {[5, 4, 3, 2, 1].map((star) => (
-          <button
-            key={star}
-            onClick={() => setStarFilter(star)}
-            class={`flex items-center gap-1 rounded-md border px-3 py-1 text-sm font-medium transition-colors ${
-              starFilter === star
-                ? "border-gray-800 bg-gray-800 text-white"
-                : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            {star}
-            <svg
-              class={`h-3.5 w-3.5 ${starFilter === star ? "text-yellow-300" : "text-yellow-400"}`}
-              fill="currentColor"
-              viewBox="0 0 20 20"
-            >
-              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-            </svg>
-          </button>
-        ))}
-      </div>
 
       {reviews.length === 0 ? (
         <div class="py-8 text-center text-sm text-gray-400">Nessuna recensione trovata</div>
