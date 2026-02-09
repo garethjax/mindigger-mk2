@@ -14,15 +14,6 @@ interface Props {
   onAggregationChange: (agg: "day" | "week" | "month") => void;
 }
 
-// Order: bottom (1=Molto Neg.) to top (5=Eccellente). Index 0 = rating 1.
-const BANDS = [
-  { rating: 1, label: "Molto Neg.", stroke: "rgb(239,68,68)",  fill: "rgba(239,68,68,0.6)" },
-  { rating: 2, label: "Negativo",   stroke: "rgb(249,115,22)", fill: "rgba(249,115,22,0.6)" },
-  { rating: 3, label: "Neutro",     stroke: "rgb(234,179,8)",  fill: "rgba(234,179,8,0.6)" },
-  { rating: 4, label: "Buono",      stroke: "rgb(132,204,22)", fill: "rgba(132,204,22,0.6)" },
-  { rating: 5, label: "Eccellente", stroke: "rgb(34,197,94)",  fill: "rgba(34,197,94,0.6)" },
-];
-
 function toEpochSeconds(isoDate: string): number {
   // Accept either "YYYY-MM-DD" or full ISO timestamps.
   const v = isoDate.includes("T") ? isoDate : `${isoDate}T00:00:00Z`;
@@ -38,42 +29,22 @@ export default function ReviewAreaChart({ data, aggregation, onAggregationChange
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
 
-  // Build stacked uPlot data + raw counts for tooltip
-  const { uplotData, rawCounts } = useMemo(() => {
+  // Phase 1: render total review volume per period bucket.
+  // This validates aggregation end-to-end before reintroducing per-rating stacking.
+  const { uplotData, totalsByIdx } = useMemo(() => {
     const dateSet = new Set<string>();
     for (const d of data) dateSet.add(d.date);
     const dates = Array.from(dateSet).sort();
 
-    const lookup = new Map<string, Map<number, number>>();
-    for (const d of data) {
-      let rMap = lookup.get(d.date);
-      if (!rMap) { rMap = new Map(); lookup.set(d.date, rMap); }
-      rMap.set(d.rating, (rMap.get(d.rating) ?? 0) + d.count);
-    }
+    const totalsByDate = new Map<string, number>();
+    for (const d of data) totalsByDate.set(d.date, (totalsByDate.get(d.date) ?? 0) + d.count);
 
     const xs = dates.map(toEpochSeconds);
-
-    // Raw per-rating counts: index 0 = rating 1, index 4 = rating 5
-    const raw: number[][] = BANDS.map((b) =>
-      dates.map((date) => lookup.get(date)?.get(b.rating) ?? 0),
-    );
-
-    // Cumulative stack: series[i][j] = sum(raw[0..i][j])
-    // Series 0 (rating 1) = raw[0], Series 1 = raw[0]+raw[1], etc.
-    const stacked: number[][] = [];
-    for (let i = 0; i < 5; i++) {
-      stacked.push(
-        dates.map((_, j) => {
-          let sum = 0;
-          for (let k = 0; k <= i; k++) sum += raw[k][j];
-          return sum;
-        }),
-      );
-    }
+    const totals = dates.map((date) => totalsByDate.get(date) ?? 0);
 
     return {
-      uplotData: [xs, ...stacked] as [number[], ...number[][]],
-      rawCounts: raw,
+      uplotData: [xs, totals] as [number[], number[]],
+      totalsByIdx: totals,
     };
   }, [data]);
 
@@ -97,6 +68,8 @@ export default function ReviewAreaChart({ data, aggregation, onAggregationChange
     if (width <= 0) return;
 
     const height = 300;
+    // uPlot ships `paths.bars`, but its TS types are a bit loose here.
+    const barPaths: any = (uPlot as any).paths.bars({ size: [0.75, 24, 2] });
 
     const ensureTooltipEl = (): HTMLDivElement => {
       if (tooltipRef.current) return tooltipRef.current;
@@ -108,46 +81,23 @@ export default function ReviewAreaChart({ data, aggregation, onAggregationChange
     };
 
     const tooltipEl = ensureTooltipEl();
-    const rawRef = rawCounts;
 
-    // Series: [x, rating1_stacked, rating2_stacked, ..., rating5_stacked]
-    // Draw top band last so it's visually on top.
-    // uPlot bands fill BETWEEN two series. We draw from top (series 5) down.
-    const series: uPlot.Series[] = [{}];
-    for (let i = 0; i < 5; i++) {
-      series.push({
-        label: BANDS[i].label,
-        stroke: BANDS[i].stroke,
+    const series: uPlot.Series[] = [
+      {},
+      {
+        label: "Recensioni",
+        stroke: "rgb(59,130,246)",
+        fill: "rgba(59,130,246,0.35)",
         width: 1,
-        // The fill is controlled by bands below, not series fill
-        fill: undefined,
         points: { show: false },
-      });
-    }
-
-    // Bands: fill area between series[i+1] (top) and series[i] (bottom).
-    // series indices are 1-based (0 is x-axis).
-    // Band for series 1 (rating 1): fills from series 1 down to y=0
-    // Band for series 2 (rating 2): fills between series 2 and series 1
-    // etc.
-    const bands: uPlot.Band[] = [];
-    // Bottom band: series 1 fills to y=0 (use series fill for this)
-    // For proper stacking, use bands from top to bottom:
-    // band between series[5] and series[4], series[4] and [3], etc.
-    for (let i = 4; i >= 1; i--) {
-      bands.push({
-        series: [i + 1, i] as [number, number],
-        fill: BANDS[i].fill,
-      });
-    }
-    // Bottom-most band: series[1] fills down. Use series fill for this.
-    series[1].fill = BANDS[0].fill;
+        paths: barPaths,
+      },
+    ];
 
     const opts: uPlot.Options = {
       width,
       height,
       series,
-      bands,
       scales: {
         x: { time: true },
         y: { min: 0 },
@@ -170,17 +120,8 @@ export default function ReviewAreaChart({ data, aggregation, onAggregationChange
             const dt = new Date(ts * 1000);
             const dateStr = dt.toLocaleDateString("it-IT", { year: "numeric", month: "2-digit", day: "2-digit" });
 
-            const parts: string[] = [dateStr];
-            let total = 0;
-            // Show from highest rating to lowest
-            for (let r = 4; r >= 0; r--) {
-              const c = rawRef[r]?.[idx] ?? 0;
-              total += c;
-              if (c > 0) parts.push(`${BANDS[r].label}: ${c}`);
-            }
-            parts.push(`Totale: ${total}`);
-
-            tooltipEl.textContent = parts.join(" · ");
+            const total = totalsByIdx[idx] ?? 0;
+            tooltipEl.textContent = `${dateStr} · Totale: ${total}`;
             const left = Math.floor(u.cursor.left ?? 0);
             const top = Math.floor(u.cursor.top ?? 0);
             tooltipEl.style.left = `${left + 12}px`;
@@ -203,7 +144,7 @@ export default function ReviewAreaChart({ data, aggregation, onAggregationChange
       chartRef.current?.destroy();
       chartRef.current = null;
     };
-  }, [width, uplotData, rawCounts]);
+  }, [width, uplotData, totalsByIdx]);
 
   return (
     <div class="rounded-lg border border-gray-200 bg-white p-4">
@@ -230,15 +171,10 @@ export default function ReviewAreaChart({ data, aggregation, onAggregationChange
       </div>
 
       <div class="mb-2 flex flex-wrap gap-2">
-        {[...BANDS].reverse().map((b) => (
-          <div key={b.rating} class="flex items-center gap-1 text-[10px] text-gray-600">
-            <span
-              class="inline-block h-2.5 w-2.5 rounded-sm"
-              style={{ backgroundColor: b.stroke }}
-            />
-            {b.label}
-          </div>
-        ))}
+        <div class="flex items-center gap-1 text-[10px] text-gray-600">
+          <span class="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: "rgb(59,130,246)" }} />
+          Totale
+        </div>
       </div>
 
       <div ref={containerRef} class="w-full">
