@@ -80,7 +80,8 @@ export default function ReviewList({ filters }: Props) {
 
   useEffect(() => {
     loadReviews(true);
-  }, [filters.locationId, filters.categoryId, filters.source, filters.dateFrom, filters.dateTo, starFilter]);
+  // TODO(D1): add categoryId filter to query, then add filters.categoryId to this dependency array
+  }, [filters.locationId, filters.source, filters.dateFrom, filters.dateTo, starFilter]);
 
   function loadMore() {
     setPage((p) => p + 1);

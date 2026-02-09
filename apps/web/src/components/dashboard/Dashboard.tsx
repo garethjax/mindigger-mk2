@@ -24,6 +24,7 @@ interface Stats {
 export default function Dashboard({ locations, isCompetitor = false }: Props) {
   const [filters, setFilters] = useState<FilterState>({
     locationId: null,
+    categoryId: null,
     dateFrom: "",
     dateTo: "",
     source: null,

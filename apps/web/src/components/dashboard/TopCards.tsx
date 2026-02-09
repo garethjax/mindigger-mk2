@@ -25,7 +25,7 @@ function StarIcon({ filled }: { filled: boolean }) {
   );
 }
 
-export default function TopCards({ totalReviews, avgRating, sentiments, periodGrowth }: Props) {
+export default function TopCards({ totalReviews, avgRating, sentiments = [], periodGrowth }: Props) {
   return (
     <div class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
       {/* Card Totale */}
