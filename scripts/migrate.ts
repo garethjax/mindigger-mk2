@@ -159,7 +159,12 @@ function byteaToHex(val: string | null): string | null {
 function parseJsonb(val: string | null): unknown {
   if (!val) return null;
   try {
-    return JSON.parse(val);
+    let parsed: unknown = JSON.parse(val);
+    // Unwrap double-encoded JSON strings (e.g. '"{\\"key\\":1}"' → {key:1})
+    while (typeof parsed === "string") {
+      parsed = JSON.parse(parsed);
+    }
+    return parsed;
   } catch {
     return null;
   }
