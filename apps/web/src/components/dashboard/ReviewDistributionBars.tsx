@@ -30,6 +30,8 @@ export default function ReviewDistributionBars({ data, aggregation, onAggregatio
     return { points: pts, maxCount: max };
   }, [data]);
 
+  const BAR_AREA_PX = 240;
+
   return (
     <div class="rounded-lg border border-gray-200 bg-white p-4">
       <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -63,20 +65,37 @@ export default function ReviewDistributionBars({ data, aggregation, onAggregatio
         <div class="py-10 text-center text-sm text-gray-400">Nessun dato</div>
       ) : (
         <div class="overflow-x-auto">
-          <div class="flex h-[300px] items-end gap-1">
-            {points.map((p) => {
-              const heightPct = maxCount > 0 ? Math.round((p.count / maxCount) * 100) : 0;
-              return (
-                <div key={p.date} class="flex w-6 flex-col items-center justify-end gap-1">
-                  <div
-                    class="w-full rounded-sm bg-blue-500/60"
-                    style={{ height: `${heightPct}%` }}
-                    title={`${p.date} · Totale: ${p.count}`}
-                  />
-                  <div class="text-[10px] text-gray-500">{toLabel(p.date, aggregation)}</div>
-                </div>
-              );
-            })}
+          <div class="flex h-[300px] flex-col">
+            <div class="flex flex-1 items-end gap-1 border-b border-gray-100 pb-2">
+              {points.map((p, idx) => {
+                const count = Number(p.count) || 0;
+                const barPx =
+                  maxCount > 0 && count > 0 ? Math.max(1, Math.round((count / maxCount) * BAR_AREA_PX)) : 0;
+
+                // Prevent label overlap on dense ranges.
+                const showLabel =
+                  aggregation === "month"
+                    ? idx % 1 === 0
+                    : aggregation === "week"
+                      ? idx % 2 === 0
+                      : idx % 3 === 0;
+
+                return (
+                  <div key={p.date} class="flex w-6 flex-col items-center justify-end">
+                    <div class="flex w-full flex-1 items-end">
+                      <div
+                        class="w-full rounded-sm bg-blue-500/60"
+                        style={{ height: `${barPx}px` }}
+                        title={`${p.date} · Totale: ${count}`}
+                      />
+                    </div>
+                    <div class="mt-1 h-4 text-[10px] leading-4 text-gray-500">
+                      {showLabel ? toLabel(p.date, aggregation) : ""}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
