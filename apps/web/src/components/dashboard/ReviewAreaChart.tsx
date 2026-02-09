@@ -68,8 +68,6 @@ export default function ReviewAreaChart({ data, aggregation, onAggregationChange
     if (width <= 0) return;
 
     const height = 300;
-    // uPlot ships `paths.bars`, but its TS types are a bit loose here.
-    const barPaths: any = (uPlot as any).paths.bars({ size: [0.75, 24, 2] });
 
     const ensureTooltipEl = (): HTMLDivElement => {
       if (tooltipRef.current) return tooltipRef.current;
@@ -87,10 +85,9 @@ export default function ReviewAreaChart({ data, aggregation, onAggregationChange
       {
         label: "Recensioni",
         stroke: "rgb(59,130,246)",
-        fill: "rgba(59,130,246,0.35)",
-        width: 1,
-        points: { show: false },
-        paths: barPaths,
+        fill: "rgba(59,130,246,0.25)",
+        width: 2,
+        points: { show: true, size: 6, width: 2, stroke: "rgb(59,130,246)", fill: "white" },
       },
     ];
 
