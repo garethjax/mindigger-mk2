@@ -7,6 +7,7 @@ declare namespace App {
     profile: {
       role: "admin" | "business";
       full_name: string | null;
+      business_id: string | null;
       account_enabled: boolean;
       account_locked: boolean;
     } | null;

@@ -14,7 +14,7 @@ const { data: business } = await supabase
 
 if (!business) return Astro.redirect("/regia/businesses");
 
-const [locationsRes, scrapingRes, sectorsRes, ownerRes, reviewCountRes] = await Promise.all([
+const [locationsRes, scrapingRes, sectorsRes, usersRes, reviewCountRes] = await Promise.all([
   supabase
     .from("locations")
     .select("id, name, is_competitor, business_sector_id, created_at")
@@ -28,9 +28,14 @@ const [locationsRes, scrapingRes, sectorsRes, ownerRes, reviewCountRes] = await 
       (await supabase.from("locations").select("id").eq("business_id", id)).data?.map((l) => l.id) ?? []
     ),
   supabase.from("business_sectors").select("id, name, platforms"),
-  supabase.from("profiles").select("id, full_name").eq("id", business.user_id).single(),
+  supabase.from("profiles").select("id, full_name").eq("business_id", id),
   supabase.from("reviews").select("id", { count: "exact" }).eq("business_id", id),
 ]);
+
+const users = usersRes.data ?? [];
+const usersLabel = users.length > 0
+  ? users.map((u) => u.full_name || u.id.slice(0, 8)).join(", ")
+  : "Nessun utente";
 ---
 
 <AdminLayout title={business.name}>
@@ -46,7 +51,7 @@ const [locationsRes, scrapingRes, sectorsRes, ownerRes, reviewCountRes] = await 
     locations={locationsRes.data ?? []}
     scrapingConfigs={scrapingRes.data ?? []}
     sectors={sectorsRes.data ?? []}
-    ownerName={ownerRes.data?.full_name ?? business.user_id.slice(0, 8)}
+    usersLabel={usersLabel}
     reviewCount={reviewCountRes.count ?? 0}
   />
 </AdminLayout>

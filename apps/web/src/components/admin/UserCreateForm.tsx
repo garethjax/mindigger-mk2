@@ -1,5 +1,4 @@
-import { useState } from "preact/hooks";
-import { createSupabaseBrowser } from "@/lib/supabase";
+import { useState, useRef, useEffect } from "preact/hooks";
 
 interface Props {
   businesses: { id: string; name: string }[];
@@ -9,13 +8,34 @@ export default function UserCreateForm({ businesses }: Props) {
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(true);
   const [role, setRole] = useState<"business" | "admin">("business");
   const [businessId, setBusinessId] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const supabase = createSupabaseBrowser();
+  // Searchable business dropdown
+  const [bizSearch, setBizSearch] = useState("");
+  const [bizDropdownOpen, setBizDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const filteredBusinesses = businesses.filter((b) =>
+    b.name.toLowerCase().includes(bizSearch.toLowerCase())
+  );
+
+  const selectedBizName = businesses.find((b) => b.id === businessId)?.name ?? "";
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setBizDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   async function handleSubmit(e: Event) {
     e.preventDefault();
@@ -23,32 +43,38 @@ export default function UserCreateForm({ businesses }: Props) {
     setError("");
     setSuccess("");
 
-    // Call edge function to create user (needs service_role)
-    const { data, error: fnError } = await supabase.functions.invoke(
-      "admin-create-user",
-      {
-        body: {
+    try {
+      const res = await fetch("/api/admin/create-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           email,
           password,
           full_name: fullName,
           role,
           business_id: businessId || undefined,
-        },
-      }
-    );
+        }),
+      });
+      const data = await res.json();
 
-    if (fnError) {
-      setError(fnError.message || "Errore nella creazione utente");
-    } else if (data?.error) {
-      setError(data.error);
-    } else {
-      setSuccess("Utente creato con successo!");
-      setEmail("");
-      setFullName("");
-      setPassword("");
-      setRole("business");
-      setBusinessId("");
+      if (!res.ok || data.error) {
+        setError(data.error || `Errore ${res.status}`);
+        setLoading(false);
+        return;
+      }
+    } catch (err) {
+      setError("Errore di rete");
+      setLoading(false);
+      return;
     }
+
+    setSuccess("Utente creato con successo!");
+    setEmail("");
+    setFullName("");
+    setPassword("");
+    setRole("business");
+    setBusinessId("");
+    setBizSearch("");
     setLoading(false);
   }
 
@@ -77,14 +103,23 @@ export default function UserCreateForm({ businesses }: Props) {
 
       <div>
         <label class="mb-1 block text-xs font-medium text-gray-500">Password *</label>
-        <input
-          type="password"
-          required
-          minLength={6}
-          value={password}
-          onInput={(e) => setPassword((e.target as HTMLInputElement).value)}
-          class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-        />
+        <div class="relative">
+          <input
+            type={showPassword ? "text" : "password"}
+            required
+            minLength={6}
+            value={password}
+            onInput={(e) => setPassword((e.target as HTMLInputElement).value)}
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 pr-16 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword(!showPassword)}
+            class="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-0.5 text-xs text-gray-500 hover:text-gray-700"
+          >
+            {showPassword ? "Nascondi" : "Mostra"}
+          </button>
+        </div>
       </div>
 
       <div>
@@ -94,26 +129,78 @@ export default function UserCreateForm({ businesses }: Props) {
           onChange={(e) => setRole((e.target as HTMLSelectElement).value as "business" | "admin")}
           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
         >
-          <option value="business">Business</option>
+          <option value="business">Analista</option>
           <option value="admin">Admin</option>
         </select>
       </div>
 
-      {role === "business" && businesses.length > 0 && (
+      {businesses.length > 0 && (
         <div>
           <label class="mb-1 block text-xs font-medium text-gray-500">
-            Assegna Business (opzionale)
+            Assegna Azienda (opzionale)
           </label>
-          <select
-            value={businessId}
-            onChange={(e) => setBusinessId((e.target as HTMLSelectElement).value)}
-            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          >
-            <option value="">— Nessuno —</option>
-            {businesses.map((b) => (
-              <option key={b.id} value={b.id}>{b.name}</option>
-            ))}
-          </select>
+          <div ref={dropdownRef} class="relative">
+            <input
+              type="text"
+              value={bizDropdownOpen ? bizSearch : selectedBizName}
+              onFocus={() => {
+                setBizDropdownOpen(true);
+                setBizSearch("");
+              }}
+              onInput={(e) => {
+                setBizSearch((e.target as HTMLInputElement).value);
+                setBizDropdownOpen(true);
+              }}
+              placeholder="Cerca azienda..."
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            {businessId && !bizDropdownOpen && (
+              <button
+                type="button"
+                onClick={() => {
+                  setBusinessId("");
+                  setBizSearch("");
+                }}
+                class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                &times;
+              </button>
+            )}
+            {bizDropdownOpen && (
+              <div class="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBusinessId("");
+                    setBizSearch("");
+                    setBizDropdownOpen(false);
+                  }}
+                  class="w-full px-3 py-2 text-left text-sm text-gray-400 hover:bg-gray-50"
+                >
+                  — Nessuna —
+                </button>
+                {filteredBusinesses.map((b) => (
+                  <button
+                    type="button"
+                    key={b.id}
+                    onClick={() => {
+                      setBusinessId(b.id);
+                      setBizSearch("");
+                      setBizDropdownOpen(false);
+                    }}
+                    class={`w-full px-3 py-2 text-left text-sm hover:bg-blue-50 ${
+                      b.id === businessId ? "bg-blue-50 font-medium text-blue-700" : "text-gray-700"
+                    }`}
+                  >
+                    {b.name}
+                  </button>
+                ))}
+                {filteredBusinesses.length === 0 && (
+                  <div class="px-3 py-2 text-sm text-gray-400">Nessun risultato</div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

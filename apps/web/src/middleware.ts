@@ -2,8 +2,13 @@ import { defineMiddleware } from "astro:middleware";
 import { createSupabaseServer } from "@/lib/supabase";
 
 const PUBLIC_ROUTES = ["/auth/login", "/auth/forgot-password", "/auth/callback"];
+const BYPASS_AUTH_MIDDLEWARE = import.meta.env.DEV && import.meta.env.PUBLIC_BYPASS_AUTH === "true";
 
 export const onRequest = defineMiddleware(async (context, next) => {
+  if (BYPASS_AUTH_MIDDLEWARE) {
+    return next();
+  }
+
   const { pathname } = context.url;
 
   // Skip auth check for public routes and static assets
@@ -30,7 +35,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
   // Fetch profile for role info
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role, full_name, account_enabled, account_locked")
+    .select("role, full_name, business_id, account_enabled, account_locked")
     .eq("id", user.id)
     .single();
 

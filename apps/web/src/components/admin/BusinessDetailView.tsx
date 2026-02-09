@@ -5,7 +5,9 @@ interface Business {
   id: string;
   name: string;
   type: string;
-  user_id: string;
+  ragione_sociale: string | null;
+  email: string | null;
+  referente_nome: string | null;
   embeddings_enabled: boolean;
 }
 
@@ -38,7 +40,7 @@ interface Props {
   locations: Location[];
   scrapingConfigs: ScrapingConfig[];
   sectors: Sector[];
-  ownerName: string;
+  usersLabel: string;
   reviewCount: number;
 }
 
@@ -62,13 +64,18 @@ export default function BusinessDetailView({
   locations: initialLocations,
   scrapingConfigs: initialConfigs,
   sectors,
-  ownerName,
+  usersLabel,
   reviewCount,
 }: Props) {
-  const [locations] = useState(initialLocations);
-  const [configs] = useState(initialConfigs);
+  const [locations, setLocations] = useState(initialLocations);
+  const [configs, setConfigs] = useState(initialConfigs);
   const [triggerLoading, setTriggerLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newLocName, setNewLocName] = useState("");
+  const [newLocSector, setNewLocSector] = useState(sectors[0]?.id ?? "");
+  const [newLocCompetitor, setNewLocCompetitor] = useState(false);
+  const [addLoading, setAddLoading] = useState(false);
 
   const supabase = createSupabaseBrowser();
 
@@ -77,6 +84,35 @@ export default function BusinessDetailView({
     const list = configsByLocation.get(c.location_id) ?? [];
     list.push(c);
     configsByLocation.set(c.location_id, list);
+  }
+
+  async function addLocation(e: Event) {
+    e.preventDefault();
+    if (!newLocName.trim()) return;
+    setAddLoading(true);
+    setMessage(null);
+
+    const { data, error } = await supabase
+      .from("locations")
+      .insert({
+        name: newLocName.trim(),
+        business_id: business.id,
+        business_sector_id: newLocSector,
+        is_competitor: newLocCompetitor,
+      })
+      .select("id, name, is_competitor, business_sector_id, created_at")
+      .single();
+
+    if (error) {
+      setMessage({ type: "err", text: `Errore: ${error.message}` });
+    } else if (data) {
+      setLocations([...locations, data]);
+      setNewLocName("");
+      setNewLocCompetitor(false);
+      setShowAddForm(false);
+      setMessage({ type: "ok", text: `Location "${data.name}" aggiunta` });
+    }
+    setAddLoading(false);
   }
 
   async function triggerScraping(locationId: string, platform: string) {
@@ -98,9 +134,9 @@ export default function BusinessDetailView({
 
   return (
     <div class="space-y-6">
-      {/* Business Info */}
+      {/* Dati Azienda */}
       <div class="rounded-lg border border-gray-200 bg-white p-6">
-        <h2 class="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Info</h2>
+        <h2 class="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Dati Azienda</h2>
         <div class="grid grid-cols-2 gap-4 text-sm">
           <div>
             <span class="text-gray-400">Nome:</span>{" "}
@@ -109,8 +145,24 @@ export default function BusinessDetailView({
           <div>
             <span class="text-gray-400">Tipo:</span> {business.type}
           </div>
+          {business.ragione_sociale && (
+            <div>
+              <span class="text-gray-400">Ragione Sociale:</span>{" "}
+              <span class="font-medium">{business.ragione_sociale}</span>
+            </div>
+          )}
+          {business.email && (
+            <div>
+              <span class="text-gray-400">Email:</span> {business.email}
+            </div>
+          )}
+          {business.referente_nome && (
+            <div>
+              <span class="text-gray-400">Referente:</span> {business.referente_nome}
+            </div>
+          )}
           <div>
-            <span class="text-gray-400">Proprietario:</span> {ownerName}
+            <span class="text-gray-400">Utenti:</span> {usersLabel}
           </div>
           <div>
             <span class="text-gray-400">Recensioni totali:</span>{" "}
@@ -143,10 +195,63 @@ export default function BusinessDetailView({
           <h2 class="text-sm font-bold uppercase tracking-wide text-gray-500">
             Location ({locations.length})
           </h2>
+          <button
+            type="button"
+            onClick={() => setShowAddForm(!showAddForm)}
+            class="text-xs font-medium text-blue-600 hover:text-blue-800"
+          >
+            {showAddForm ? "Annulla" : "+ Aggiungi Location"}
+          </button>
         </div>
 
-        {locations.length === 0 ? (
-          <p class="text-sm text-gray-400">Nessuna location. Aggiungi location dalla pagina di creazione.</p>
+        {showAddForm && (
+          <form onSubmit={addLocation} class="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
+            <div class="flex flex-wrap items-end gap-3">
+              <div class="flex-1 min-w-48">
+                <label class="mb-1 block text-xs font-medium text-gray-600">Nome</label>
+                <input
+                  type="text"
+                  required
+                  value={newLocName}
+                  onInput={(e) => setNewLocName((e.target as HTMLInputElement).value)}
+                  class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+                  placeholder="Nome location"
+                />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-600">Settore</label>
+                <select
+                  value={newLocSector}
+                  onChange={(e) => setNewLocSector((e.target as HTMLSelectElement).value)}
+                  class="rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+                >
+                  {sectors.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+              <label class="flex items-center gap-1.5 text-sm text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={newLocCompetitor}
+                  onChange={(e) => setNewLocCompetitor((e.target as HTMLInputElement).checked)}
+                  class="rounded border-gray-300"
+                />
+                Competitor
+              </label>
+              <button
+                type="submit"
+                disabled={addLoading}
+                class="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {addLoading ? "..." : "Aggiungi"}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {locations.length === 0 && !showAddForm ? (
+          <p class="text-sm text-gray-400">Nessuna location. Clicca "+ Aggiungi Location" per iniziare.</p>
         ) : (
           <div class="space-y-4">
             {locations.map((loc) => {

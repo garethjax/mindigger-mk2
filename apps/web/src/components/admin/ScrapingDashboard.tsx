@@ -22,7 +22,6 @@ interface ScrapingConfig {
     businesses: {
       id: string;
       name: string;
-      user_id: string;
     };
   } | null;
 }

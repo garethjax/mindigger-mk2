@@ -9,5 +9,10 @@ export default defineConfig({
   integrations: [preact({ compat: true })],
   vite: {
     plugins: [tailwindcss()],
+    server: {
+      watch: {
+        ignored: ["**/PIANO/old_dump/**", "**/tables_split/**"],
+      },
+    },
   },
 });

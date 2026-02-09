@@ -5,6 +5,7 @@ interface Profile {
   id: string;
   role: string;
   full_name: string | null;
+  business_id: string | null;
   account_enabled: boolean;
   account_locked: boolean;
   active_subscription: boolean;
@@ -14,18 +15,17 @@ interface Profile {
 interface Business {
   id: string;
   name: string;
-  user_id: string;
 }
 
 interface Props {
   profile: Profile;
-  userBusinesses: Business[];
   allBusinesses: Business[];
 }
 
-export default function UserEditForm({ profile, userBusinesses, allBusinesses }: Props) {
+export default function UserEditForm({ profile, allBusinesses }: Props) {
   const [fullName, setFullName] = useState(profile.full_name ?? "");
   const [role, setRole] = useState(profile.role);
+  const [businessId, setBusinessId] = useState(profile.business_id ?? "");
   const [enabled, setEnabled] = useState(profile.account_enabled);
   const [locked, setLocked] = useState(profile.account_locked);
   const [subscription, setSubscription] = useState(profile.active_subscription);
@@ -44,6 +44,7 @@ export default function UserEditForm({ profile, userBusinesses, allBusinesses }:
       .update({
         full_name: fullName || null,
         role,
+        business_id: businessId || null,
         account_enabled: enabled,
         account_locked: locked,
         active_subscription: subscription,
@@ -57,6 +58,8 @@ export default function UserEditForm({ profile, userBusinesses, allBusinesses }:
     }
     setLoading(false);
   }
+
+  const currentBiz = allBusinesses.find((b) => b.id === businessId);
 
   return (
     <div class="space-y-6">
@@ -86,8 +89,24 @@ export default function UserEditForm({ profile, userBusinesses, allBusinesses }:
             onChange={(e) => setRole((e.target as HTMLSelectElement).value)}
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
-            <option value="business">Business</option>
+            <option value="business">Analista</option>
             <option value="admin">Admin</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="mb-1 block text-xs font-medium text-gray-500">Azienda Associata</label>
+          <select
+            value={businessId}
+            onChange={(e) => setBusinessId((e.target as HTMLSelectElement).value)}
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="">— Nessun business —</option>
+            {allBusinesses.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -142,29 +161,23 @@ export default function UserEditForm({ profile, userBusinesses, allBusinesses }:
         </button>
       </form>
 
-      {/* Associated Businesses */}
-      <div class="rounded-lg border border-gray-200 bg-white p-6">
-        <h2 class="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">
-          Business Associati
-        </h2>
-        {userBusinesses.length > 0 ? (
-          <ul class="space-y-2">
-            {userBusinesses.map((b) => (
-              <li key={b.id} class="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2">
-                <span class="text-sm text-gray-700">{b.name}</span>
-                <a
-                  href={`/regia/businesses/${b.id}`}
-                  class="text-xs font-medium text-blue-600 hover:text-blue-800"
-                >
-                  Dettagli
-                </a>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p class="text-sm text-gray-400">Nessun business associato.</p>
-        )}
-      </div>
+      {/* Current Business Info */}
+      {currentBiz && (
+        <div class="rounded-lg border border-gray-200 bg-white p-6">
+          <h2 class="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">
+            Azienda Associata
+          </h2>
+          <div class="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2">
+            <span class="text-sm text-gray-700">{currentBiz.name}</span>
+            <a
+              href={`/regia/businesses/${currentBiz.id}`}
+              class="text-xs font-medium text-blue-600 hover:text-blue-800"
+            >
+              Dettagli
+            </a>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

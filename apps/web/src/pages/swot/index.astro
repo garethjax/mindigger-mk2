@@ -3,21 +3,17 @@ import DashboardLayout from "@/layouts/DashboardLayout.astro";
 import { createSupabaseServer } from "@/lib/supabase";
 
 const supabase = createSupabaseServer(Astro.cookies, Astro.request);
-const user = Astro.locals.user;
+const profile = Astro.locals.profile;
+const businessId = profile?.business_id;
 
-const { data: businesses } = await supabase
-  .from("businesses")
-  .select("id")
-  .eq("user_id", user.id);
-
-const businessIds = businesses?.map((b) => b.id) ?? [];
-
-const { data: swotList } = await supabase
-  .from("swot_analyses")
-  .select("id, period, status, created_at, locations(name)")
-  .in("business_id", businessIds)
-  .order("created_at", { ascending: false })
-  .limit(50);
+const { data: swotList } = businessId
+  ? await supabase
+      .from("swot_analyses")
+      .select("id, period, status, created_at, locations(name)")
+      .eq("business_id", businessId)
+      .order("created_at", { ascending: false })
+      .limit(50)
+  : { data: [] };
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   pending: { label: "In attesa", color: "bg-yellow-100 text-yellow-700" },

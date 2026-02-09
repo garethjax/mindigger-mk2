@@ -4,28 +4,15 @@ import { createSupabaseServer } from "@/lib/supabase";
 
 const supabase = createSupabaseServer(Astro.cookies, Astro.request);
 
-// Fetch all profiles with their auth email
+// Fetch all profiles with their linked business
 const { data: profiles } = await supabase
   .from("profiles")
-  .select("id, role, full_name, account_enabled, account_locked, active_subscription, free_trial_consumed, created_at")
+  .select("id, role, full_name, business_id, account_enabled, account_locked, active_subscription, free_trial_consumed, created_at, businesses(id, name)")
   .order("created_at", { ascending: false });
-
-// Fetch auth users to get emails (via admin API workaround: join businesses to get user info)
-// Since we're admin (RLS allows), we can also get businesses per user
-const { data: businesses } = await supabase
-  .from("businesses")
-  .select("id, name, user_id");
-
-const businessesByUser = new Map<string, { id: string; name: string }[]>();
-for (const b of businesses ?? []) {
-  const list = businessesByUser.get(b.user_id) ?? [];
-  list.push({ id: b.id, name: b.name });
-  businessesByUser.set(b.user_id, list);
-}
 
 const ROLE_LABELS: Record<string, { label: string; color: string }> = {
   admin: { label: "Admin", color: "bg-purple-100 text-purple-700" },
-  business: { label: "Business", color: "bg-blue-100 text-blue-700" },
+  business: { label: "Analista", color: "bg-blue-100 text-blue-700" },
 };
 ---
 
@@ -70,15 +57,15 @@ const ROLE_LABELS: Record<string, { label: string; color: string }> = {
       <tbody class="divide-y divide-gray-100">
         {(profiles ?? []).map((p) => {
           const role = ROLE_LABELS[p.role] ?? ROLE_LABELS.business;
-          const userBusinesses = businessesByUser.get(p.id) ?? [];
+          const biz = p.businesses as unknown as { id: string; name: string } | null;
           const isDisabled = !p.account_enabled || p.account_locked;
           return (
             <tr class={isDisabled ? "bg-gray-50 opacity-60" : ""}>
               <td class="px-4 py-3">
                 <div class="text-sm font-medium text-gray-900">
-                  {p.full_name || "—"}
+                  {p.full_name || "\u2014"}
                 </div>
-                <div class="text-xs text-gray-400">{p.id.slice(0, 8)}…</div>
+                {!p.full_name && <div class="text-xs text-gray-400">{p.id.slice(0, 8)}\u2026</div>}
               </td>
               <td class="px-4 py-3">
                 <span class={`rounded-full px-2 py-0.5 text-xs font-medium ${role.color}`}>
@@ -86,9 +73,7 @@ const ROLE_LABELS: Record<string, { label: string; color: string }> = {
                 </span>
               </td>
               <td class="px-4 py-3 text-sm text-gray-600">
-                {userBusinesses.length > 0
-                  ? userBusinesses.map((b) => b.name).join(", ")
-                  : "—"}
+                {biz ? biz.name : "\u2014"}
               </td>
               <td class="px-4 py-3">
                 {p.account_locked ? (

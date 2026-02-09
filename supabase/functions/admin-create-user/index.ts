@@ -48,12 +48,12 @@ Deno.serve(async (req) => {
         .eq("id", userId);
     }
 
-    // Assign business ownership if provided
+    // Assign user to business if provided
     if (business_id) {
       await admin
-        .from("businesses")
-        .update({ user_id: userId })
-        .eq("id", business_id);
+        .from("profiles")
+        .update({ business_id })
+        .eq("id", userId);
     }
 
     return Response.json(

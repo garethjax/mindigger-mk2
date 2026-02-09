@@ -22,7 +22,7 @@ const navItems = [
   <div class="flex min-h-screen">
     <aside class="flex w-64 flex-col border-r border-gray-200 bg-white">
       <div class="p-6">
-        <a href="/analytics" class="block text-xl font-bold">Mind Digger</a>
+        <a href="/analytics" class="block text-xl font-bold">Mindigger MK2</a>
       </div>
 
       <nav class="flex-1 space-y-1 px-3">
@@ -64,10 +64,28 @@ const navItems = [
         <div class="text-sm font-medium text-gray-700">
           {profile?.full_name ?? user?.email ?? "Utente"}
         </div>
-        <div class="text-xs text-gray-400">
-          {profile?.role === "admin" ? "Amministratore" : "Business"}
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-gray-400">
+            {profile?.role === "admin" ? "Amministratore" : "Analista"}
+          </span>
+          <button
+            id="logout-btn"
+            type="button"
+            class="text-xs text-red-500 hover:text-red-700"
+          >
+            Esci
+          </button>
         </div>
       </div>
+
+      <script>
+        import { createSupabaseBrowser } from "@/lib/supabase";
+        document.getElementById("logout-btn")?.addEventListener("click", async () => {
+          const supabase = createSupabaseBrowser();
+          await supabase.auth.signOut();
+          window.location.href = "/auth/login";
+        });
+      </script>
     </aside>
 
     <main class="flex-1 p-8">

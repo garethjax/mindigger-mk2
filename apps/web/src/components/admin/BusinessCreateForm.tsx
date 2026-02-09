@@ -25,6 +25,9 @@ interface PlaceData {
 export default function BusinessCreateForm({ users, sectors, googleMapsApiKey }: Props) {
   const [name, setName] = useState("");
   const [type, setType] = useState("organization");
+  const [ragioneSociale, setRagioneSociale] = useState("");
+  const [email, setEmail] = useState("");
+  const [referenteNome, setReferenteNome] = useState("");
   const [userId, setUserId] = useState("");
   const [locations, setLocations] = useState<LocationEntry[]>([
     { name: "", sectorId: sectors[0]?.id ?? "", isCompetitor: false },
@@ -64,10 +67,6 @@ export default function BusinessCreateForm({ users, sectors, googleMapsApiKey }:
 
   async function handleSubmit(e: Event) {
     e.preventDefault();
-    if (!userId) {
-      setError("Seleziona un utente proprietario");
-      return;
-    }
     setLoading(true);
     setError("");
     setSuccess("");
@@ -75,7 +74,13 @@ export default function BusinessCreateForm({ users, sectors, googleMapsApiKey }:
     // Create business
     const { data: biz, error: bizErr } = await supabase
       .from("businesses")
-      .insert({ name, type, user_id: userId })
+      .insert({
+        name,
+        type,
+        ragione_sociale: ragioneSociale || null,
+        email: email || null,
+        referente_nome: referenteNome || null,
+      })
       .select("id")
       .single();
 
@@ -83,6 +88,14 @@ export default function BusinessCreateForm({ users, sectors, googleMapsApiKey }:
       setError(bizErr?.message ?? "Errore nella creazione");
       setLoading(false);
       return;
+    }
+
+    // Assign user to this business
+    if (userId) {
+      await supabase
+        .from("profiles")
+        .update({ business_id: biz.id })
+        .eq("id", userId);
     }
 
     // Create locations
@@ -160,7 +173,7 @@ export default function BusinessCreateForm({ users, sectors, googleMapsApiKey }:
       }
     }
 
-    setSuccess("Business creato! Reindirizzamento...");
+    setSuccess("Azienda creata! Reindirizzamento...");
     setLoading(false);
     setTimeout(() => {
       window.location.href = `/regia/businesses/${biz.id}`;
@@ -189,9 +202,9 @@ export default function BusinessCreateForm({ users, sectors, googleMapsApiKey }:
         </div>
       )}
 
-      {/* Business Info */}
+      {/* Dati Azienda */}
       <div class="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
-        <h2 class="text-sm font-bold uppercase tracking-wide text-gray-500">Info Business</h2>
+        <h2 class="text-sm font-bold uppercase tracking-wide text-gray-500">Dati Azienda</h2>
 
         <div>
           <label class="mb-1 block text-xs font-medium text-gray-500">Nome *</label>
@@ -218,14 +231,46 @@ export default function BusinessCreateForm({ users, sectors, googleMapsApiKey }:
         </div>
 
         <div>
-          <label class="mb-1 block text-xs font-medium text-gray-500">Proprietario *</label>
+          <label class="mb-1 block text-xs font-medium text-gray-500">Ragione Sociale</label>
+          <input
+            type="text"
+            value={ragioneSociale}
+            onInput={(e) => setRagioneSociale((e.target as HTMLInputElement).value)}
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            placeholder="Es. Azienda S.r.l."
+          />
+        </div>
+
+        <div>
+          <label class="mb-1 block text-xs font-medium text-gray-500">Email</label>
+          <input
+            type="email"
+            value={email}
+            onInput={(e) => setEmail((e.target as HTMLInputElement).value)}
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            placeholder="info@azienda.it"
+          />
+        </div>
+
+        <div>
+          <label class="mb-1 block text-xs font-medium text-gray-500">Referente</label>
+          <input
+            type="text"
+            value={referenteNome}
+            onInput={(e) => setReferenteNome((e.target as HTMLInputElement).value)}
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            placeholder="Nome e cognome"
+          />
+        </div>
+
+        <div>
+          <label class="mb-1 block text-xs font-medium text-gray-500">Utente di riferimento</label>
           <select
-            required
             value={userId}
             onChange={(e) => setUserId((e.target as HTMLSelectElement).value)}
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
-            <option value="">— Seleziona utente —</option>
+            <option value="">— Nessuno —</option>
             {users.map((u) => (
               <option key={u.id} value={u.id}>
                 {u.full_name || u.id.slice(0, 8)}
@@ -304,7 +349,7 @@ export default function BusinessCreateForm({ users, sectors, googleMapsApiKey }:
         disabled={loading}
         class="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
       >
-        {loading ? "Creazione..." : "Crea Business"}
+        {loading ? "Creazione..." : "Crea Azienda"}
       </button>
     </form>
   );
