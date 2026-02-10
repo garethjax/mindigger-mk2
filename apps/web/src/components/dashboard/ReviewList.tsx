@@ -62,15 +62,19 @@ export default function ReviewList({ filters, businessId }: Props) {
     setLoading(true);
     const currentPage = reset ? 0 : page;
 
+    const selectFields = filters.categoryId
+      ? "id, title, text, rating, author, source, url, review_date, ai_result, review_categories!inner(category_id)"
+      : "id, title, text, rating, author, source, url, review_date, ai_result";
     let query = supabase
       .from("reviews")
-      .select("id, title, text, rating, author, source, url, review_date, ai_result")
+      .select(selectFields)
       .eq("status", "completed")
       .eq("business_id", businessId)
       .order("review_date", { ascending: false })
       .range(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE - 1);
 
     if (filters.locationId) query = query.eq("location_id", filters.locationId);
+    if (filters.categoryId) query = query.eq("review_categories.category_id", filters.categoryId);
     if (filters.source) query = query.eq("source", filters.source);
     if (filters.dateFrom) query = query.gte("review_date", filters.dateFrom);
     if (filters.dateTo) query = query.lte("review_date", filters.dateTo);
@@ -88,7 +92,7 @@ export default function ReviewList({ filters, businessId }: Props) {
 
   useEffect(() => {
     loadReviews(true);
-  }, [businessId, filters.locationId, filters.source, filters.dateFrom, filters.dateTo, ratingsKey]);
+  }, [businessId, filters.locationId, filters.categoryId, filters.source, filters.dateFrom, filters.dateTo, ratingsKey]);
 
   function loadMore() {
     setPage((p) => p + 1);
