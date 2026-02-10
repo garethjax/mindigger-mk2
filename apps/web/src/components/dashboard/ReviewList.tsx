@@ -35,8 +35,8 @@ function topicBadgeColor(score: number): string {
   if (score >= 5) return "bg-green-200 text-green-900";
   if (score >= 4) return "bg-green-100 text-green-700";
   if (score >= 3) return "bg-yellow-100 text-yellow-700";
-  if (score >= 2) return "bg-red-100 text-red-600";
-  return "bg-red-200 text-red-800";
+  if (score >= 2) return "bg-red-600 text-white";
+  return "bg-red-700 text-white";
 }
 
 interface Props {
@@ -164,7 +164,7 @@ export default function ReviewList({ filters, businessId }: Props) {
                   {review.ai_result.italian_topics.map((t) => (
                     <span
                       key={t.italian_name}
-                      class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${topicBadgeColor(t.score)}`}
+                      class={`rounded px-2 py-1 text-sm font-medium ${topicBadgeColor(t.score)}`}
                     >
                       {t.italian_name}
                     </span>
