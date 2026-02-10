@@ -368,6 +368,21 @@ deno_version = 2
 [edge_runtime.secrets]
 OPENAI_API_KEY = "env(OPENAI_API_KEY)"
 
+# Edge functions called by authenticated users need verify_jwt = false
+# because the gateway cannot verify ES256 JWTs (new auth format).
+# Auth is still checked inside each function via createAdminClient/getUser.
+[functions.swot-submit]
+verify_jwt = false
+
+[functions.swot-poll]
+verify_jwt = false
+
+[functions.analysis-submit]
+verify_jwt = false
+
+[functions.analysis-poll]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327
