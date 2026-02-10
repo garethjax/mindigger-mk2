@@ -59,6 +59,67 @@ const PLATFORM_LABELS: Record<string, string> = {
   trustpilot: "Trustpilot",
 };
 
+// ── CSV helpers (RFC 4180 + Excel BOM) ──────────────────────────────
+function csvEscapeField(value: unknown): string {
+  if (value == null) return '""';
+  const str = String(value);
+  // Always quote: double any internal double-quotes
+  return '"' + str.replace(/"/g, '""') + '"';
+}
+
+function buildCsvRow(fields: unknown[]): string {
+  return fields.map(csvEscapeField).join(",");
+}
+
+const CSV_HEADERS: string[] = [
+  "id", "source", "title", "text", "rating", "author",
+  "review_date", "url", "status", "created_at",
+];
+
+async function downloadLocationCsv(
+  supabase: ReturnType<typeof createSupabaseBrowser>,
+  locationId: string,
+  locationName: string,
+  businessId: string,
+) {
+  const PAGE = 5000;
+  const allRows: Record<string, unknown>[] = [];
+  let offset = 0;
+  let done = false;
+
+  while (!done) {
+    const { data, error } = await supabase
+      .from("reviews")
+      .select("id, source, title, text, rating, author, review_date, url, status, created_at")
+      .eq("location_id", locationId)
+      .eq("business_id", businessId)
+      .order("review_date", { ascending: false })
+      .range(offset, offset + PAGE - 1);
+
+    if (error || !data) break;
+    allRows.push(...data);
+    done = data.length < PAGE;
+    offset += PAGE;
+  }
+
+  const lines = [buildCsvRow(CSV_HEADERS)];
+  for (const row of allRows) {
+    lines.push(buildCsvRow(CSV_HEADERS.map((h) => row[h])));
+  }
+
+  // UTF-8 BOM so Excel auto-detects encoding
+  const BOM = "\uFEFF";
+  const blob = new Blob([BOM + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const safeName = locationName.replace(/[^a-zA-Z0-9_-]+/g, "_");
+  a.download = `recensioni_${safeName}_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+// ─────────────────────────────────────────────────────────────────────
+
 export default function BusinessDetailView({
   business,
   locations: initialLocations,
@@ -70,6 +131,7 @@ export default function BusinessDetailView({
   const [locations, setLocations] = useState(initialLocations);
   const [configs, setConfigs] = useState(initialConfigs);
   const [triggerLoading, setTriggerLoading] = useState<string | null>(null);
+  const [csvLoading, setCsvLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newLocName, setNewLocName] = useState("");
@@ -272,9 +334,30 @@ export default function BusinessDetailView({
                         </span>
                       )}
                     </div>
-                    <span class="text-xs text-gray-400">
-                      {sector?.name ?? "—"}
-                    </span>
+                    <div class="flex items-center gap-3">
+                      <button
+                        type="button"
+                        disabled={csvLoading === loc.id}
+                        onClick={async () => {
+                          setCsvLoading(loc.id);
+                          setMessage(null);
+                          try {
+                            await downloadLocationCsv(supabase, loc.id, loc.name, business.id);
+                            setMessage({ type: "ok", text: `CSV scaricato per "${loc.name}"` });
+                          } catch {
+                            setMessage({ type: "err", text: `Errore download CSV per "${loc.name}"` });
+                          }
+                          setCsvLoading(null);
+                        }}
+                        class="rounded border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                        title="Scarica recensioni CSV"
+                      >
+                        {csvLoading === loc.id ? "..." : "Download recensioni"}
+                      </button>
+                      <span class="text-xs text-gray-400">
+                        {sector?.name ?? "—"}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Scraping configs for this location */}
@@ -319,7 +402,7 @@ export default function BusinessDetailView({
                               onClick={() => triggerScraping(loc.id, cfg.platform)}
                               class="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                             >
-                              {isLoading ? "..." : "Trigger"}
+                              {isLoading ? "..." : "Avvia Scraping rapido"}
                             </button>
                           </div>
                         );
