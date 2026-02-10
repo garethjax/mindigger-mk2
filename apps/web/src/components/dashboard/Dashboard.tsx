@@ -44,13 +44,24 @@ const SENTIMENTS: Array<{ rating: number; label: string; color: string; ratingRa
   { rating: 1, label: "Molto Negativo", color: "bg-red-500", ratingRange: [1, 1] },
 ];
 
+function defaultDateRange(): { dateFrom: string; dateTo: string } {
+  const now = new Date();
+  const from = new Date(now);
+  from.setDate(from.getDate() - 90);
+  return {
+    dateFrom: from.toISOString().slice(0, 10),
+    dateTo: now.toISOString().slice(0, 10),
+  };
+}
+
 export default function Dashboard({ locations, categories = [], businessId, isCompetitor = false }: Props) {
+  const defaults = defaultDateRange();
   const [filters, setFilters] = useState<FilterState>({
     locationId: null,
     categoryId: null,
     ratings: [5, 4, 3, 2, 1],
-    dateFrom: "",
-    dateTo: "",
+    dateFrom: defaults.dateFrom,
+    dateTo: defaults.dateTo,
     source: null,
   });
   const [stats, setStats] = useState<Stats>({
@@ -59,7 +70,7 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
     distribution: [],
   });
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
-  const [aggregation, setAggregation] = useState<"week" | "month">("week");
+  const [aggregation, setAggregation] = useState<"day" | "week" | "month">("week");
 
   const supabase = createSupabaseBrowser();
 
@@ -77,9 +88,10 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
   async function loadStats() {
     let query = supabase
       .from("reviews")
-      .select("rating")
+      .select("rating", { count: "exact" })
       .eq("status", "completed")
-      .eq("business_id", businessId);
+      .eq("business_id", businessId)
+      .limit(50000);
 
     if (filters.locationId) query = query.eq("location_id", filters.locationId);
     if (filters.source) query = query.eq("source", filters.source);

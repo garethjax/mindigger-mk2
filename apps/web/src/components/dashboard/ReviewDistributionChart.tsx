@@ -9,21 +9,23 @@ interface ChartDataPoint {
 
 interface Props {
   data: ChartDataPoint[];
-  aggregation: "week" | "month";
-  onAggregationChange: (agg: "week" | "month") => void;
+  aggregation: "day" | "week" | "month";
+  onAggregationChange: (agg: "day" | "week" | "month") => void;
   title?: string;
 }
 
 function toEpochSeconds(isoDate: string): number {
   const v = isoDate.includes("T") ? isoDate : `${isoDate}T00:00:00Z`;
-  const t = Date.parse(v);
-  return Math.floor(t / 1000);
+  return Math.floor(Date.parse(v) / 1000);
 }
 
 function roundUpToStep(n: number, step: number): number {
   if (n <= 0) return step;
   return Math.ceil(n / step) * step;
 }
+
+const BAR_FILL = "rgba(59,130,246,0.55)";
+const BAR_STROKE = "rgba(59,130,246,0.9)";
 
 export default function ReviewDistributionChart({
   data,
@@ -56,12 +58,10 @@ export default function ReviewDistributionChart({
     roRef.current?.disconnect();
     const ro = new ResizeObserver((entries) => {
       const entry = entries[0];
-      const nextWidth = Math.floor(entry?.contentRect?.width ?? 0);
-      setWidth(nextWidth);
+      setWidth(Math.floor(entry?.contentRect?.width ?? 0));
     });
     ro.observe(containerRef.current);
     roRef.current = ro;
-
     return () => ro.disconnect();
   }, []);
 
@@ -83,10 +83,9 @@ export default function ReviewDistributionChart({
 
     const tooltipEl = ensureTooltipEl();
 
-    const dateFmt =
-      aggregation === "month"
-        ? uPlot.fmtDate("{MM}/{YY}")
-        : uPlot.fmtDate("{DD}/{MM}");
+    const fmtDate = aggregation === "month"
+      ? uPlot.fmtDate("{MM}/{YY}")
+      : uPlot.fmtDate("{DD}/{MM}/{YY}");
 
     const ySplits: uPlot.Axis.Splits = () => {
       const splits: number[] = [];
@@ -94,7 +93,8 @@ export default function ReviewDistributionChart({
       return splits;
     };
 
-    const barGapPx = aggregation === "month" ? 10 : 6;
+    // Capture for draw hook closure
+    const capturedYMax = yMax;
 
     const opts: uPlot.Options = {
       width,
@@ -103,23 +103,18 @@ export default function ReviewDistributionChart({
         {},
         {
           label: "Totale",
-          fill: "rgba(59,130,246,0.55)",
-          stroke: "rgba(59,130,246,0.9)",
-          width: 1,
-          paths: uPlot.paths.bars?.({ gap: barGapPx, radius: 0.15 }),
+          show: true,
+          stroke: "transparent",
+          width: 0,
+          points: { show: false },
         },
       ],
       scales: {
         x: { time: true },
-        y: {
-          min: 0,
-          range: () => [0, yMax],
-        },
+        y: { min: 0, max: capturedYMax },
       },
       axes: [
-        {
-          values: (_u, splits) => splits.map((v) => dateFmt(new Date(v * 1000))),
-        },
+        { values: (_u, splits) => splits.map((v) => fmtDate(new Date(v * 1000))) },
         {
           label: "Recensioni",
           splits: ySplits,
@@ -127,12 +122,43 @@ export default function ReviewDistributionChart({
           grid: { show: true, stroke: "rgba(229,231,235,1)", width: 1 },
         },
       ],
-      cursor: {
-        drag: { x: false, y: false },
-      },
+      cursor: { drag: { x: false, y: false } },
       hooks: {
+        draw: [
+          (u: uPlot) => {
+            const ctx = u.ctx;
+            const xData = u.data[0];
+            const yData = u.data[1];
+            if (!xData.length) return;
+
+            const dpr = window.devicePixelRatio || 1;
+            const nBars = xData.length;
+            // Calculate bar width from plot area
+            const plotWidth = u.bbox.width / dpr;
+            const gapFraction = aggregation === "month" ? 0.3 : aggregation === "week" ? 0.25 : 0.15;
+            const barW = Math.max((plotWidth / nBars) * (1 - gapFraction), 1);
+
+            ctx.save();
+            ctx.fillStyle = BAR_FILL;
+            ctx.strokeStyle = BAR_STROKE;
+            ctx.lineWidth = 1;
+
+            for (let i = 0; i < nBars; i++) {
+              const cx = u.valToPos(xData[i], "x", true);
+              const cy = u.valToPos(yData[i] as number, "y", true);
+              const y0 = u.valToPos(0, "y", true);
+              const h = y0 - cy;
+              if (h > 0) {
+                ctx.fillRect(cx - barW / 2, cy, barW, h);
+                ctx.strokeRect(cx - barW / 2, cy, barW, h);
+              }
+            }
+
+            ctx.restore();
+          },
+        ],
         setCursor: [
-          (u) => {
+          (u: uPlot) => {
             const idx = u.cursor.idx;
             if (idx == null || idx < 0) {
               tooltipEl.classList.add("hidden");
@@ -142,7 +168,6 @@ export default function ReviewDistributionChart({
             const ts = u.data[0][idx] as number;
             const count = u.data[1][idx] as number;
             const dt = new Date(ts * 1000);
-
             const dateStr = dt.toLocaleDateString("it-IT", { year: "numeric", month: "2-digit", day: "2-digit" });
             tooltipEl.textContent = `${dateStr} · Totale: ${count.toLocaleString("it-IT")}`;
 
@@ -176,6 +201,7 @@ export default function ReviewDistributionChart({
         <div class="text-sm font-semibold text-gray-900">{title}</div>
         <div class="inline-flex overflow-hidden rounded-md border border-gray-200">
           {([
+            ["day", "Giorno"],
             ["week", "Settimana"],
             ["month", "Mese"],
           ] as const).map(([agg, label]) => (
