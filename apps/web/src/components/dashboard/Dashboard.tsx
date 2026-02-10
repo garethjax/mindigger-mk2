@@ -4,7 +4,7 @@ import FilterBar, { type FilterState } from "./FilterBar";
 import TopCards, { type SentimentCard } from "./TopCards";
 import ReviewList from "./ReviewList";
 import ReviewChart from "./ReviewChart";
-import ReviewAreaChart, { type RatingPeriodPoint } from "./ReviewAreaChart";
+import ReviewDistributionChart from "./ReviewDistributionChart";
 
 interface Location {
   id: string;
@@ -44,13 +44,24 @@ const SENTIMENTS: Array<{ rating: number; label: string; color: string; ratingRa
   { rating: 1, label: "Molto Negativo", color: "bg-red-500", ratingRange: [1, 1] },
 ];
 
+function defaultDateRange(): { dateFrom: string; dateTo: string } {
+  const now = new Date();
+  const from = new Date(now);
+  from.setDate(from.getDate() - 90);
+  return {
+    dateFrom: from.toISOString().slice(0, 10),
+    dateTo: now.toISOString().slice(0, 10),
+  };
+}
+
 export default function Dashboard({ locations, categories = [], businessId, isCompetitor = false }: Props) {
+  const defaults = defaultDateRange();
   const [filters, setFilters] = useState<FilterState>({
     locationId: null,
     categoryId: null,
     ratings: [5, 4, 3, 2, 1],
-    dateFrom: "",
-    dateTo: "",
+    dateFrom: defaults.dateFrom,
+    dateTo: defaults.dateTo,
     source: null,
   });
   const [stats, setStats] = useState<Stats>({
@@ -59,12 +70,12 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
     distribution: [],
   });
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
-  const [areaData, setAreaData] = useState<RatingPeriodPoint[]>([]);
   const [aggregation, setAggregation] = useState<"day" | "week" | "month">("week");
 
   const supabase = createSupabaseBrowser();
 
-  const filterDeps = [businessId, filters.locationId, filters.dateFrom, filters.dateTo, filters.source];
+  const ratingsKey = (filters.ratings ?? [5, 4, 3, 2, 1]).join(",");
+  const filterDeps = [businessId, filters.locationId, filters.dateFrom, filters.dateTo, filters.source, ratingsKey];
 
   useEffect(() => {
     loadStats();
@@ -72,15 +83,15 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
 
   useEffect(() => {
     loadChart();
-    loadAreaChart();
   }, [...filterDeps, aggregation]);
 
   async function loadStats() {
     let query = supabase
       .from("reviews")
-      .select("rating")
+      .select("rating", { count: "exact" })
       .eq("status", "completed")
-      .eq("business_id", businessId);
+      .eq("business_id", businessId)
+      .limit(50000);
 
     if (filters.locationId) query = query.eq("location_id", filters.locationId);
     if (filters.source) query = query.eq("source", filters.source);
@@ -117,10 +128,12 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
       p_date_from: filters.dateFrom || undefined,
       p_date_to: filters.dateTo || undefined,
       p_source: filters.source ?? undefined,
+      p_ratings: filters.ratings ?? undefined,
       p_granularity: aggregation,
     });
 
     if (error || !data) {
+      if (error) console.error("reviews_by_period rpc error", error);
       setChartData([]);
       return;
     }
@@ -130,30 +143,6 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
         date: row.period,
         count: Number(row.count),
         avgRating: Number(row.avg_rating),
-      })),
-    );
-  }
-
-  async function loadAreaChart() {
-    const { data, error } = await supabase.rpc("reviews_by_rating_period", {
-      p_business_id: businessId,
-      p_location_id: filters.locationId ?? undefined,
-      p_date_from: filters.dateFrom || undefined,
-      p_date_to: filters.dateTo || undefined,
-      p_source: filters.source ?? undefined,
-      p_granularity: aggregation,
-    });
-
-    if (error || !data) {
-      setAreaData([]);
-      return;
-    }
-
-    setAreaData(
-      (data as { period: string; rating: number; count: number }[]).map((row) => ({
-        date: row.period,
-        rating: Number(row.rating),
-        count: Number(row.count),
       })),
     );
   }
@@ -197,14 +186,14 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
         sentiments={sentiments}
       />
 
-      <div class="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div class="mb-6 grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
         <ReviewChart
           data={chartData}
           aggregation={aggregation}
           onAggregationChange={setAggregation}
         />
-        <ReviewAreaChart
-          data={areaData}
+        <ReviewDistributionChart
+          data={chartData.map((d) => ({ date: d.date, count: d.count }))}
           aggregation={aggregation}
           onAggregationChange={setAggregation}
         />

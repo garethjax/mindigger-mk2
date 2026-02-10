@@ -145,7 +145,7 @@ export default function FilterBar({
 
   const now = new Date();
   const today = toISODateLocal(now);
-  const sixMonthsAgo = toISODateLocal(addDays(now, -180));
+  const sixMonthsAgo = toISODateLocal(addDays(now, -90));
 
   const [locationId, setLocationId] = useState<string | null>(null);
   const [categoryId, setCategoryId] = useState<string | null>(null);
