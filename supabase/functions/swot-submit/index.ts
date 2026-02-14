@@ -123,13 +123,15 @@ Deno.serve(async (req) => {
     // Gather completed reviews for this location + period
     let query = db
       .from("reviews")
-      .select("title, text")
+      .select(categoryUids.length > 0 ? "title, text, review_categories!inner(category_id)" : "title, text")
       .eq("location_id", swot.location_id)
       .eq("status", "completed")
       .gte("review_date", periodStart.toISOString().slice(0, 10));
 
-    // If we have category filters from statistics, we'd need to join
-    // For now, we take all completed reviews for the location in the period
+    if (categoryUids.length > 0) {
+      query = query.in("review_categories.category_id", categoryUids);
+    }
+
     const { data: reviews, error: reviewErr } = await query.limit(5000);
 
     if (reviewErr) throw reviewErr;
