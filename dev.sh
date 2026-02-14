@@ -47,7 +47,21 @@ cd "$ROOT_DIR"
 
 _recover_supabase() {
   warn "Supabase in inconsistent state. Stopping (preserving data) and restarting..."
-  # NEVER use --no-backup: it destroys Docker volumes and all data
+  # ┌─────────────────────────────────────────────────────────────────┐
+  # │  WARNING — DO NOT ADD --no-backup TO THIS COMMAND              │
+  # │                                                                │
+  # │  `supabase stop --no-backup` DESTROYS all Docker volumes,      │
+  # │  which means the entire local database is wiped: reviews,      │
+  # │  users, locations, SWOT analyses — everything.                 │
+  # │                                                                │
+  # │  This function is called after a computer restart when         │
+  # │  containers are in an inconsistent state. A plain              │
+  # │  `supabase stop` cleans up stale containers while keeping     │
+  # │  the data volumes intact, so `supabase start` can bring       │
+  # │  back the database with all data preserved.                    │
+  # │                                                                │
+  # │  We learned this the hard way: 15k+ reviews lost.             │
+  # └─────────────────────────────────────────────────────────────────┘
   supabase stop 2>/dev/null || true
   supabase start || { err "Failed to start Supabase."; exit 1; }
 }
