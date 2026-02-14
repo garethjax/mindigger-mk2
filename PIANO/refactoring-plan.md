@@ -346,8 +346,48 @@ interface AIProvider {
 
 ### Edge Functions:
 - **`reports/weekly`** - Report distribuzione reviews per email (porta da `send_reports`)
-- **`reports/generate`** - Generazione PDF scaricabile
+- **`reports/generate`** - Generazione documenti scaricabili (PDF/DOCX) basati su template
 - **`scraping/scheduled`** - Trigger settimanale (già in Fase 2)
+
+### Export SWOT (download + allegato email)
+
+Nell'app originale, una SWOT completata poteva essere scaricata e allegata automaticamente alle email di notifica.
+
+**Template richiesto (PDF tipo "presentazione"):**
+- Layout: orizzontale (landscape)
+- 1 sezione per pagina
+- 5 pagine totali: Strengths, Weaknesses, Opportunities, Threats, Spunti operativi
+
+**Template alternativo (DOCX tipo "documento ufficio"):**
+- Layout: verticale (portrait)
+- Struttura piu' discorsiva e stampabile (titoli, elenchi, tabelle)
+
+**Trigger email:**
+- quando la SWOT passa a stato completato, inviare email al richiedente con il documento allegato (PDF di default; DOCX opzionale se richiesto).
+
+### Export "Scarica Vista" (dashboard snapshot)
+
+Obiettivo: permettere all'utente di applicare filtri in dashboard (periodo, location, categorie, piattaforme, stelle, ecc.) e scaricare un documento statico che "congela" la vista attuale per stampa/condivisione.
+
+**Comportamento atteso:**
+- CTA: pulsante "Scarica vista"
+- Input: lo stesso set di filtri della dashboard + business_id + eventuale title/notes
+- Output: PDF (default) che ricrea in modo statico riepilogo filtri applicati, TopCards (totale + distribuzione), grafici (andamento + distribuzione), ed un estratto recensioni (es. top N con topic)
+
+Nota: per evitare coupling al DOM, il documento va generato a partire dagli stessi dati/aggregazioni usati dalla UI (RPC + query), non da screenshot.
+
+### Scelta tecnologia (proposta)
+
+Per mantenere il refactoring pragmatico e modulare, separare "modello dati" da "renderer".
+
+- **PDF (presentazione / snapshot):** Typst come renderer principale (template `.typ`, output PDF testuale/vettoriale).
+- **DOCX (documento ufficio):** libreria `docx` in TypeScript per generare `.docx` (template/stili dedicati).
+
+API proposta (alto livello):
+- `reports/generate` con parametri:
+  - `template`: `swot` | `dashboard_view`
+  - `format`: `pdf` | `docx`
+  - `payload`: dati minimi (ids + filtri) oppure dati gia' aggregati (scelta da definire).
 
 ### pg_cron:
 - Lunedì 00:00: trigger scraping settimanale
@@ -359,7 +399,7 @@ interface AIProvider {
 
 **File legacy template:** `mindigger_back/.../email_handler/templates/` (swot-ready.html, reviews_report.html)
 
-**Verifica:** Report email inviato con distribuzione corretta, PDF generato e scaricabile
+**Verifica:** Report email inviato con distribuzione corretta, export SWOT generabile e scaricabile (PDF/DOCX), "Scarica vista" genera un PDF coerente con i filtri applicati
 
 ---
 

@@ -50,38 +50,38 @@ Obiettivo: verificare il flusso completo di onboarding di una nuova azienda nel 
 
 ## 5B. Test pipeline AI post-import (batch OpenAI)
 
-- [ ] Verificare stato code prima del submit:
-  - [ ] `ai_batches` reviews non deve avere job duplicati in `in_progress` (o documentare quelli esistenti)
-  - [ ] `reviews` deve avere righe `pending` dopo import
-- [ ] Eseguire `analysis-submit` one-shot (manuale) e verificare risposta `200` senza errori schema
-- [ ] Verificare creazione nuovi batch `reviews` in `ai_batches` con `status = in_progress`
-- [ ] Eseguire `analysis-poll` one-shot (manuale) e verificare avanzamento stati (`validating/finalizing/completed/failed`)
-- [ ] Se batch `failed`: scaricare `error_file` da OpenAI e classificare causa (schema, rate limit, payload, etc.)
-- [ ] Verificare che le review passino da `pending`/`analyzing` a `completed`
-- [ ] Verificare popolamento `topic_scores` e campi AI in `reviews.ai_result`
+- [ X] Verificare stato code prima del submit:
+  - [X ] `ai_batches` reviews non deve avere job duplicati in `in_progress` (o documentare quelli esistenti)
+  - [X ] `reviews` deve avere righe `pending` dopo import
+- [X ] Eseguire `analysis-submit` one-shot (manuale) e verificare risposta `200` senza errori schema
+- [X ] Verificare creazione nuovi batch `reviews` in `ai_batches` con `status = in_progress`
+- [X ] Eseguire `analysis-poll` one-shot (manuale) e verificare avanzamento stati (`validating/finalizing/completed/failed`)
+- [X ] Se batch `failed`: scaricare `error_file` da OpenAI e classificare causa (schema, rate limit, payload, etc.)
+- [X ] Verificare che le review passino da `pending`/`analyzing` a `completed`
+- [X ] Verificare popolamento `topic_scores` e campi AI in `reviews.ai_result`
 
 ## 6. Test dashboard utente
 
-- [ ] Logout da admin
-- [ ] Login come utente business appena creato
-- [ ] Verificare che la dashboard Analytics (`/analytics`) mostri i dati corretti
-- [ ] Verificare i filtri:
-  - [ ] **Sedi**: cambiare location, i dati si aggiornano
-  - [ ] **Argomento**: selezionare una categoria, stats + grafici + lista recensioni si filtrano
-  - [ ] **Argomento > "Tutti gli argomenti"**: torna ai dati completi (grafici inclusi)
-  - [ ] **Piattaforma**: filtrare per source
-  - [ ] **Rating**: toggle singole stelle
-  - [ ] **Date**: cambiare intervallo, verificare che il conteggio cambi
-- [ ] Verificare i grafici: Andamento Recensioni e Distribuzione Recensioni si renderizzano
+- [X ] Logout da admin
+- [X ] Login come utente business appena creato
+- [X ] Verificare che la dashboard Analytics (`/analytics`) mostri i dati corretti
+- [X ] Verificare i filtri:
+  - [X ] **Sedi**: cambiare location, i dati si aggiornano
+  - [X ] **Argomento**: selezionare una categoria, stats + grafici + lista recensioni si filtrano
+  - [X ] **Argomento > "Tutti gli argomenti"**: torna ai dati completi (grafici inclusi)
+  - [X ] **Piattaforma**: filtrare per source
+  - [X ] **Rating**: toggle singole stelle
+  - [X ] **Date**: cambiare intervallo, verificare che il conteggio cambi
+- [X ] Verificare i grafici: Andamento Recensioni e Distribuzione Recensioni si renderizzano
 
 ## 7. Test CSV download (admin)
 
-- [ ] Login come admin
-- [ ] Navigare al dettaglio azienda
-- [ ] Click "Download recensioni" su una location con dati
-- [ ] Verificare che il CSV si scarichi
-- [ ] Aprire il CSV in Excel/Numbers: verificare che le colonne siano corrette e il testo non sia spezzato
-- [ ] Verificare encoding: caratteri accentati (e, a, u) devono apparire correttamente
+- [X] Login come admin
+- [X ] Navigare al dettaglio azienda
+- [X ] Click "Download recensioni" su una location con dati
+- [X ] Verificare che il CSV si scarichi
+- [X ] Aprire il CSV in Excel/Numbers: verificare che le colonne siano corrette e il testo non sia spezzato
+- [X ] Verificare encoding: caratteri accentati (e, a, u) devono apparire correttamente
 
 ## 8. Test SWOT (se OPENAI_API_KEY configurata)
 
