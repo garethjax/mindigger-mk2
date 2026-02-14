@@ -2,6 +2,11 @@
  * Default scraping depths per platform.
  * initial_depth: first scrape (all historical reviews)
  * recurring_depth: subsequent weekly/monthly scrapes (only new reviews)
+ *
+ * Botster depth constraints:
+ * - TripAdvisor: only accepts 30, 60, 100, 150, 500, 1000
+ * - Google Maps: accepts any number (tested up to 2000)
+ * - Booking: no depth parameter (credit-based)
  */
 export const PLATFORM_DEFAULTS: Record<
   string,
