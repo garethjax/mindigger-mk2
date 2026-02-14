@@ -9,7 +9,7 @@ const businessId = profile?.business_id;
 const { data: swotList } = businessId
   ? await supabase
       .from("swot_analyses")
-      .select("id, period, status, created_at, locations(name)")
+      .select("id, period, status, statistics, created_at, locations(name)")
       .eq("business_id", businessId)
       .order("created_at", { ascending: false })
       .limit(50)
@@ -49,6 +49,8 @@ const PERIOD_LABELS: Record<string, string> = {
       {swotList.map((swot) => {
         const s = STATUS_LABELS[swot.status] ?? STATUS_LABELS.pending;
         const loc = swot.locations as unknown as { name: string } | null;
+        const stats = swot.statistics as { category_name: string }[] | null;
+        const ambiti = stats?.map((s2: { category_name: string }) => s2.category_name).filter(Boolean) ?? [];
         return (
           <a
             href={swot.status === "completed" ? `/swot/${swot.id}` : "#"}
@@ -73,6 +75,11 @@ const PERIOD_LABELS: Record<string, string> = {
                 </span>
               </div>
             </div>
+            {ambiti.length > 0 && (
+              <div class="mt-1 text-xs text-gray-500">
+                Ambiti: {ambiti.join(", ")}
+              </div>
+            )}
           </a>
         );
       })}
