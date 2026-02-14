@@ -1,5 +1,5 @@
 import { corsHeaders } from "../_shared/cors.ts";
-import { createAdminClient } from "../_shared/supabase.ts";
+import { createAdminClient, requireAdmin } from "../_shared/supabase.ts";
 
 /**
  * analysis-submit — pg_cron every minute
@@ -14,6 +14,7 @@ import { createAdminClient } from "../_shared/supabase.ts";
 
 const BATCH_LIMIT = 20_000;
 const STALE_HOURS = 24;
+const CLAIM_CHUNK_SIZE = 500;
 
 // Inline provider logic to avoid cross-package import issues in Deno Edge Functions
 const OPENAI_API = "https://api.openai.com/v1";
@@ -74,7 +75,7 @@ const REVIEW_SCHEMA = {
           additionalProperties: false,
         },
       },
-      required: ["italian_topics", "sentiment", "language"],
+      required: ["italian_topics", "sentiment", "language", "italian_translation"],
       additionalProperties: false,
     },
   },
@@ -85,6 +86,14 @@ function sanitize(text: string | null | undefined): string {
   return text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
 }
 
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -93,6 +102,13 @@ Deno.serve(async (req) => {
   const db = createAdminClient();
 
   try {
+    const body = await req.json().catch(() => ({})) as { location_id?: string };
+    const targetLocationId = body.location_id?.trim() || null;
+
+    if (targetLocationId) {
+      await requireAdmin(req.headers.get("authorization"));
+    }
+
     // Get active AI config
     const { data: aiConfig, error: configErr } = await db
       .from("ai_configs")
@@ -104,6 +120,33 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({ error: "No active AI config" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // Safety guard: avoid duplicate submissions while previous review batches are still running.
+    let activeBatchQuery = db
+      .from("ai_batches")
+      .select("id", { count: "exact", head: true })
+      .eq("batch_type", "reviews")
+      .eq("status", "in_progress");
+
+    if (targetLocationId) {
+      activeBatchQuery = activeBatchQuery.contains("metadata", { location_id: targetLocationId });
+    }
+
+    const { count: activeReviewBatches, error: activeBatchErr } = await activeBatchQuery;
+
+    if (activeBatchErr) throw activeBatchErr;
+    if ((activeReviewBatches ?? 0) > 0) {
+      return new Response(
+        JSON.stringify({
+          message: targetLocationId
+            ? "Review analysis already in progress for this location"
+            : "Review analysis already in progress",
+          active_batches: activeReviewBatches,
+          location_id: targetLocationId,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
@@ -120,7 +163,7 @@ Deno.serve(async (req) => {
       Date.now() - STALE_HOURS * 60 * 60 * 1000,
     ).toISOString();
 
-    const { data: reviews, error: reviewErr } = await db
+    let reviewQuery = db
       .from("reviews")
       .select(`
         id, title, text, location_id, business_id,
@@ -129,8 +172,13 @@ Deno.serve(async (req) => {
           business_sectors:business_sector_id(id, name)
         )
       `)
-      .or(`status.eq.pending,and(status.eq.analyzing,batched_at.lt.${staleThreshold})`)
-      .limit(BATCH_LIMIT);
+      .or(`status.eq.pending,and(status.eq.analyzing,batched_at.lt.${staleThreshold})`);
+
+    if (targetLocationId) {
+      reviewQuery = reviewQuery.eq("location_id", targetLocationId);
+    }
+
+    const { data: reviews, error: reviewErr } = await reviewQuery.limit(BATCH_LIMIT);
 
     if (reviewErr) throw reviewErr;
     if (!reviews || reviews.length === 0) {
@@ -284,23 +332,37 @@ Deno.serve(async (req) => {
         const batchData = await batchRes.json();
 
         // Save batch tracking
-        await db.from("ai_batches").insert({
+        const locationIdForBatch = group.reviews[0]?.location_id ?? null;
+        const businessIdForBatch = group.reviews[0]?.business_id ?? null;
+
+        const { error: batchInsertErr } = await db.from("ai_batches").insert({
           external_batch_id: batchData.id,
           provider: aiConfig.provider,
           batch_type: "reviews",
           status: "in_progress",
-          metadata: { sector_id: sectorId, review_count: group.reviews.length },
+          metadata: {
+            sector_id: sectorId,
+            review_count: group.reviews.length,
+            location_id: locationIdForBatch,
+            business_id: businessIdForBatch,
+            scope: targetLocationId ? "location" : "global",
+          },
         });
+        if (batchInsertErr) throw batchInsertErr;
 
         batchIds.push(batchData.id);
         totalSubmitted += group.reviews.length;
 
         // Mark reviews as analyzing
         const reviewIds = group.reviews.map((r) => r.id);
-        await db
-          .from("reviews")
-          .update({ status: "analyzing", batched_at: new Date().toISOString() })
-          .in("id", reviewIds);
+        const batchedAt = new Date().toISOString();
+        for (const ids of chunkArray(reviewIds, CLAIM_CHUNK_SIZE)) {
+          const { error: claimErr } = await db
+            .from("reviews")
+            .update({ status: "analyzing", batched_at: batchedAt })
+            .in("id", ids);
+          if (claimErr) throw claimErr;
+        }
       } else {
         // Direct mode — process one by one (or use batch of direct calls)
         // For now, process sequentially (can be parallelized later)
@@ -383,6 +445,7 @@ Deno.serve(async (req) => {
         submitted: totalSubmitted,
         empty_completed: emptyReviews.length,
         batches: batchIds,
+        location_id: targetLocationId,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );

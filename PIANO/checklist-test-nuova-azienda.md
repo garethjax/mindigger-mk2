@@ -48,6 +48,18 @@ Obiettivo: verificare il flusso completo di onboarding di una nuova azienda nel 
 - [X] Verificare messaggio di esito import (review lette/inserite)
 - [X] Verificare che il conteggio recensioni azienda/location aumenti dopo import
 
+## 5B. Test pipeline AI post-import (batch OpenAI)
+
+- [ ] Verificare stato code prima del submit:
+  - [ ] `ai_batches` reviews non deve avere job duplicati in `in_progress` (o documentare quelli esistenti)
+  - [ ] `reviews` deve avere righe `pending` dopo import
+- [ ] Eseguire `analysis-submit` one-shot (manuale) e verificare risposta `200` senza errori schema
+- [ ] Verificare creazione nuovi batch `reviews` in `ai_batches` con `status = in_progress`
+- [ ] Eseguire `analysis-poll` one-shot (manuale) e verificare avanzamento stati (`validating/finalizing/completed/failed`)
+- [ ] Se batch `failed`: scaricare `error_file` da OpenAI e classificare causa (schema, rate limit, payload, etc.)
+- [ ] Verificare che le review passino da `pending`/`analyzing` a `completed`
+- [ ] Verificare popolamento `topic_scores` e campi AI in `reviews.ai_result`
+
 ## 6. Test dashboard utente
 
 - [ ] Logout da admin
@@ -102,6 +114,6 @@ Obiettivo: verificare il flusso completo di onboarding di una nuova azienda nel 
 - [X] Nel dettaglio location e piattaforma e' disponibile il bottone **"Importa recensioni"**
 - [X] L'import accetta file JSON export Botster (Google Maps / TripAdvisor)
 - [X] L'import usa dedup su `review_hash` e inserisce nuove recensioni con stato `pending`
-- [X] Dopo import viene triggerata `analysis-submit` per avviare la pipeline AI
+- [X] Dopo import la pipeline AI parte tramite `analysis-submit` schedulato oppure one-shot manuale
 - [X] Verificare in Regia > AI Config che partano i batch OpenAI per recensioni importate
 - [X] Verificare che, a polling completato, le recensioni passino a `completed` con topic/categorie valorizzati

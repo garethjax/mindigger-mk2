@@ -26,12 +26,20 @@ Deno.serve(async (req) => {
   const results: { batch_id: string; status: string; processed?: number }[] = [];
 
   try {
+    const body = await req.json().catch(() => ({})) as { batch_id?: string };
+
     // Get in-progress review batches
-    const { data: batches, error: batchErr } = await db
+    let batchQuery = db
       .from("ai_batches")
       .select("*")
       .eq("status", "in_progress")
       .eq("batch_type", "reviews");
+
+    if (body.batch_id) {
+      batchQuery = batchQuery.eq("id", body.batch_id);
+    }
+
+    const { data: batches, error: batchErr } = await batchQuery;
 
     if (batchErr) throw batchErr;
     if (!batches || batches.length === 0) {

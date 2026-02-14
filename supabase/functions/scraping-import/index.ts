@@ -154,7 +154,7 @@ Deno.serve(async (req) => {
     let analysisResult: unknown = null;
     let analysisError: string | null = null;
 
-    if (body.trigger_analysis !== false) {
+    if (body.trigger_analysis === true) {
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
       const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 

@@ -159,6 +159,7 @@ export default function BusinessDetailView({
   const [configs, setConfigs] = useState(initialConfigs);
   const [triggerLoading, setTriggerLoading] = useState<string | null>(null);
   const [importLoading, setImportLoading] = useState<string | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState<string | null>(null);
   const [csvLoading, setCsvLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -276,7 +277,7 @@ export default function BusinessDetailView({
         body: {
           config_id: configId,
           raw_reviews: rawJson,
-          trigger_analysis: true,
+          trigger_analysis: false,
         },
       });
 
@@ -294,7 +295,7 @@ export default function BusinessDetailView({
         const platformLabel = PLATFORM_LABELS[platform] ?? platform;
         setMessage({
           type: "ok",
-          text: `Import ${platformLabel} completato: ${inserted} inserite su ${parsed} review lette.`,
+          text: `Import ${platformLabel} completato: ${inserted} inserite su ${parsed} review lette. Analisi AI in coda via cron.`,
         });
       }
     } catch {
@@ -302,6 +303,49 @@ export default function BusinessDetailView({
     } finally {
       setImportLoading(null);
     }
+  }
+
+  async function triggerLocationPipeline(locationId: string, locationName: string) {
+    setAnalysisLoading(locationId);
+    setMessage(null);
+
+    const { data, error } = await supabase.functions.invoke("analysis-submit", {
+      body: { location_id: locationId },
+    });
+
+    if (error) {
+      let detail = error.message;
+      const context = (error as { context?: Response }).context;
+      if (context) {
+        const bodyText = await context.text().catch(() => "");
+        detail = `HTTP ${context.status}${bodyText ? ` - ${bodyText}` : ""}`;
+      }
+      setMessage({ type: "err", text: `Pipeline AI (${locationName}): ${detail}` });
+      setAnalysisLoading(null);
+      return;
+    }
+
+    const payload = data as { submitted?: number; batches?: string[]; message?: string; active_batches?: number };
+    if (payload?.message?.toLowerCase().includes("already in progress")) {
+      setMessage({
+        type: "ok",
+        text: `Pipeline AI (${locationName}): già in corso (${payload.active_batches ?? 1} batch attivi).`,
+      });
+      setAnalysisLoading(null);
+      return;
+    }
+
+    const submitted = Number(payload?.submitted ?? 0);
+    const batches = ((data as { batches?: string[] })?.batches ?? []).length;
+    if (submitted === 0) {
+      setMessage({ type: "ok", text: `Pipeline AI (${locationName}): nessuna review pending da inviare.` });
+    } else {
+      setMessage({
+        type: "ok",
+        text: `Pipeline AI (${locationName}) avviata: ${submitted} review inviate, ${batches} batch creati.`,
+      });
+    }
+    setAnalysisLoading(null);
   }
 
   async function toggleRecurring(locationId: string, current: boolean) {
@@ -668,6 +712,15 @@ export default function BusinessDetailView({
                         title="Scarica recensioni CSV"
                       >
                         {csvLoading === loc.id ? "..." : "Download recensioni"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={analysisLoading === loc.id}
+                        onClick={() => triggerLocationPipeline(loc.id, loc.name)}
+                        class="rounded border border-blue-300 bg-white px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+                        title="Invia in pipeline AI le recensioni pending di questa location"
+                      >
+                        {analysisLoading === loc.id ? "..." : "Avvia Pipeline AI"}
                       </button>
                       <span class="text-xs text-gray-400">
                         {sector?.name ?? "—"}

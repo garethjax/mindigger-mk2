@@ -385,6 +385,9 @@ verify_jwt = false
 [functions.analysis-poll]
 verify_jwt = false
 
+[functions.analysis-batch-admin]
+verify_jwt = false
+
 [functions.brave-search]
 verify_jwt = false
 
