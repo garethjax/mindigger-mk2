@@ -158,6 +158,7 @@ export default function BusinessDetailView({
   const [locations, setLocations] = useState(initialLocations);
   const [configs, setConfigs] = useState(initialConfigs);
   const [triggerLoading, setTriggerLoading] = useState<string | null>(null);
+  const [importLoading, setImportLoading] = useState<string | null>(null);
   const [csvLoading, setCsvLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -258,6 +259,49 @@ export default function BusinessDetailView({
       setMessage({ type: "ok", text: `Scraping avviato per ${PLATFORM_LABELS[platform] ?? platform}` });
     }
     setTriggerLoading(null);
+  }
+
+  async function importReviewsFromJson(configId: string, platform: string, file: File | null) {
+    if (!file) return;
+
+    const key = `${configId}:import`;
+    setImportLoading(key);
+    setMessage(null);
+
+    try {
+      const rawText = await file.text();
+      const rawJson = JSON.parse(rawText);
+
+      const { data, error } = await supabase.functions.invoke("scraping-import", {
+        body: {
+          config_id: configId,
+          raw_reviews: rawJson,
+          trigger_analysis: true,
+        },
+      });
+
+      if (error) {
+        let detail = error.message;
+        const context = (error as { context?: Response }).context;
+        if (context) {
+          const bodyText = await context.text().catch(() => "");
+          detail = `HTTP ${context.status}${bodyText ? ` - ${bodyText}` : ""}`;
+        }
+        setMessage({ type: "err", text: `Errore import: ${detail}` });
+      } else {
+        const inserted = Number(data?.inserted_reviews ?? 0);
+        const parsed = Number(data?.parsed_reviews ?? 0);
+        const platformLabel = PLATFORM_LABELS[platform] ?? platform;
+        setMessage({
+          type: "ok",
+          text: `Import ${platformLabel} completato: ${inserted} inserite su ${parsed} review lette.`,
+        });
+      }
+    } catch {
+      setMessage({ type: "err", text: "JSON non valido. Controlla il file esportato da Botster." });
+    } finally {
+      setImportLoading(null);
+    }
   }
 
   async function toggleRecurring(locationId: string, current: boolean) {
@@ -646,6 +690,7 @@ export default function BusinessDetailView({
                           const st = STATUS_LABELS[cfg.status] ?? STATUS_LABELS.idle;
                           const key = `${loc.id}:${cfg.platform}`;
                           const isLoading = triggerLoading === key;
+                          const isImporting = importLoading === `${cfg.id}:import`;
                           const configStr = Object.entries(cfg.platform_config ?? {})
                             .map(([k, v]) => `${k}: ${v}`)
                             .join(", ");
@@ -675,14 +720,31 @@ export default function BusinessDetailView({
                                   </span>
                                 )}
                               </div>
-                              <button
-                                type="button"
-                                disabled={isLoading || cfg.status === "elaborating" || cfg.status === "checking"}
-                                onClick={() => triggerScraping(loc.id, cfg.platform)}
-                                class="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                              >
-                                {isLoading ? "..." : "Avvia Scraping rapido"}
-                              </button>
+                              <div class="flex items-center gap-2">
+                                <label class="cursor-pointer rounded border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50">
+                                  {isImporting ? "Import..." : "Importa recensioni"}
+                                  <input
+                                    type="file"
+                                    accept=".json,application/json"
+                                    class="hidden"
+                                    disabled={isImporting || isLoading}
+                                    onChange={(e) => {
+                                      const input = e.target as HTMLInputElement;
+                                      const file = input.files?.[0] ?? null;
+                                      void importReviewsFromJson(cfg.id, cfg.platform, file);
+                                      input.value = "";
+                                    }}
+                                  />
+                                </label>
+                                <button
+                                  type="button"
+                                  disabled={isLoading || isImporting || cfg.status === "elaborating" || cfg.status === "checking"}
+                                  onClick={() => triggerScraping(loc.id, cfg.platform)}
+                                  class="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                                >
+                                  {isLoading ? "..." : "Avvia Scraping rapido"}
+                                </button>
+                              </div>
                             </div>
                           );
                         })}

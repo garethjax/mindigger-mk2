@@ -391,6 +391,9 @@ verify_jwt = false
 [functions.scraping-trigger]
 verify_jwt = false
 
+[functions.scraping-import]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

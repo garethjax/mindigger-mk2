@@ -61,9 +61,10 @@ Deno.serve(async (req) => {
     }
 
     // Determine depth: initial (first time) vs recurring
-    const depth = config.initial_scrape_done
-      ? config.recurring_depth
-      : config.initial_depth;
+    const isInitialScrape = !config.initial_scrape_done;
+    const depth = isInitialScrape
+      ? config.initial_depth
+      : config.recurring_depth;
 
     // Build platform-specific payload
     const platformConfig = config.platform_config as Record<string, string>;
@@ -75,20 +76,23 @@ Deno.serve(async (req) => {
         coordinates: { latitude: 1, longitude: 1, zoom: "15" },
         depth,
         sort: "newest",
-        new_items_only: true,
+        // First run must backfill historical reviews.
+        new_items_only: !isInitialScrape,
       };
     } else if (platform === "tripadvisor") {
       payload = {
         input: [platformConfig.location_url],
         tripadvisor_language: "it",
         depth,
-        new_items_only: true,
+        // First run must backfill historical reviews.
+        new_items_only: !isInitialScrape,
       };
     } else {
       // Booking — no depth parameter (fixed credits)
       payload = {
         input: [platformConfig.location_url],
-        new_items_only: true,
+        // First run must backfill historical reviews.
+        new_items_only: !isInitialScrape,
       };
     }
 
@@ -139,7 +143,7 @@ Deno.serve(async (req) => {
         success: true,
         job_id: jobId,
         depth_used: depth,
-        initial_scrape: !config.initial_scrape_done,
+        initial_scrape: isInitialScrape,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );

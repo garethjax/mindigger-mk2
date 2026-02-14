@@ -1,106 +1,9 @@
 import { corsHeaders } from "../_shared/cors.ts";
 import { createAdminClient } from "../_shared/supabase.ts";
+import { ingestRawReviews } from "../_shared/scraping-ingest.ts";
 
 const BOTSTER_API_KEY = Deno.env.get("BOTSTER_API_KEY")!;
 const API_BASE = "https://botster.io/api/v2";
-
-// -- Field mappings (inlined to avoid cross-package Deno import issues) --
-
-type FieldMap = Record<string, string[]>;
-
-const FIELD_MAPS: Record<string, FieldMap> = {
-  google_maps: {
-    title: ["title", "review_title"],
-    rating: ["rating"],
-    author_name: ["profile_name", "author_name", "name"],
-    review_text: ["text", "review_text", "content"],
-    review_date: ["time", "reviewed_at", "review_date", "date"],
-    review_url: ["review_url", "url"],
-  },
-  tripadvisor: {
-    title: ["title"],
-    rating: ["rating"],
-    author_name: ["author_name"],
-    review_text: ["review_text", "text"],
-    review_date: ["review_date", "date", "reviewed_at"],
-    review_url: ["url", "review_url"],
-  },
-  booking: {
-    title: ["review_title", "title"],
-    rating: ["review_score", "rating", "score"],
-    author_name: ["guest_name", "author_name", "name"],
-    review_text: ["review_text", "text"],
-    review_date: ["review_date", "date", "reviewed_at"],
-    review_url: ["hotel_url", "review_url", "url"],
-  },
-};
-
-function getField(
-  raw: Record<string, unknown>,
-  platform: string,
-  field: string,
-  fallback: unknown = "",
-): unknown {
-  const candidates = FIELD_MAPS[platform]?.[field];
-  if (!candidates) return fallback;
-  for (const key of candidates) {
-    const val = raw[key];
-    if (val != null && val !== "") return val;
-  }
-  return fallback;
-}
-
-function sanitize(value: unknown): string {
-  if (value == null) return "";
-  return (typeof value === "string" ? value : String(value)).replace(/\0/g, "");
-}
-
-function parseDate(raw: string | null, bookingFmt = false): string | null {
-  if (!raw) return null;
-  const s = String(raw).trim();
-  if (!s) return null;
-
-  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
-
-  if (bookingFmt) {
-    const dmy = s.match(/^(\d{2})-(\d{2})-(\d{4})$/);
-    if (dmy) return `${dmy[3]}-${dmy[2]}-${dmy[1]}`;
-  }
-
-  const months: Record<string, string> = {
-    january: "01", february: "02", march: "03", april: "04",
-    may: "05", june: "06", july: "07", august: "08",
-    september: "09", october: "10", november: "11", december: "12",
-  };
-  const mMatch = s.match(/^(\w+)\s+(\d{1,2}),?\s+(\d{4})$/i);
-  if (mMatch) {
-    const mm = months[mMatch[1].toLowerCase()];
-    if (mm) return `${mMatch[3]}-${mm}-${mMatch[2].padStart(2, "0")}`;
-  }
-
-  const num = Number(s);
-  if (!isNaN(num) && num > 1e9 && num < 1e11) {
-    return new Date(num * 1000).toISOString().slice(0, 10);
-  }
-
-  return null;
-}
-
-function alignRating(rating: number): number {
-  if (rating <= 1) return Math.floor(rating);
-  return Math.floor(rating / 2);
-}
-
-async function md5hex(input: string): Promise<string> {
-  const buf = await crypto.subtle.digest(
-    "MD5",
-    new TextEncoder().encode(input),
-  );
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
 
 // -- Main handler --
 
@@ -197,127 +100,16 @@ Deno.serve(async (req) => {
         }
 
         const rawResults: Record<string, unknown>[] = await runRes.json();
-        const platform = config.platform as string;
-        const businessId = (config.locations as { business_id: string }).business_id;
-        const isBooking = platform === "booking";
-
-        // Parse raw results
-        const parsed: {
-          title: string;
-          rating: number;
-          author: string;
-          text: string;
-          review_date: string | null;
-          url: string;
-          raw_data: Record<string, unknown>;
-          hash: string;
-        }[] = [];
-
-        for (const raw of rawResults) {
-          if (!raw || Object.keys(raw).length === 0) continue;
-
-          const title = sanitize(getField(raw, platform, "title", ""));
-          let rating = Number(getField(raw, platform, "rating", 1)) || 1;
-          const author = sanitize(getField(raw, platform, "author_name", "")).slice(0, 50);
-          let text = sanitize(getField(raw, platform, "review_text", ""));
-          const dateRaw = String(getField(raw, platform, "review_date", "") ?? "");
-          const url = sanitize(getField(raw, platform, "review_url", "")).slice(0, 255);
-
-          // Booking: combine positive/negative, convert rating
-          if (isBooking) {
-            const pos = sanitize(raw.review_positives);
-            const neg = sanitize(raw.review_negatives);
-            if (pos || neg) {
-              text = pos && neg ? `${pos} ${neg}` : pos || neg;
-            }
-            rating = alignRating(rating);
-          }
-
-          if (rating < 1) rating = 1;
-          const reviewDate = parseDate(dateRaw, isBooking);
-
-          // Sanitize raw_data
-          const sanitizedRaw: Record<string, unknown> = {};
-          for (const [k, v] of Object.entries(raw)) {
-            sanitizedRaw[k] = typeof v === "string" ? sanitize(v) : v;
-          }
-
-          // Compute MD5 hash (sorted keys, matching legacy structure)
-          const hashInput = JSON.stringify(
-            {
-              author_name: author,
-              business_id: businessId,
-              location_id: config.location_id,
-              rating,
-              review_date: reviewDate,
-              review_text: text,
-              review_url: url,
-              source: platform,
-              title,
-            },
-            [
-              "author_name", "business_id", "location_id", "rating",
-              "review_date", "review_text", "review_url", "source", "title",
-            ],
-          );
-          const hash = await md5hex(hashInput);
-
-          parsed.push({
-            title,
-            rating,
-            author,
-            text,
-            review_date: reviewDate,
-            url,
-            raw_data: sanitizedRaw,
-            hash,
-          });
-        }
-
-        // Dedup: check existing hashes in DB
-        const allHashes = parsed.map((r) => r.hash);
-        const { data: existingRows } = await db
-          .from("reviews")
-          .select("review_hash")
-          .in("review_hash", allHashes);
-
-        const existingHashes = new Set(
-          (existingRows ?? []).map((r: { review_hash: string }) => r.review_hash),
+        const ingest = await ingestRawReviews(
+          db,
+          config as {
+            id: string;
+            location_id: string;
+            platform: string;
+            locations: { business_id: string };
+          },
+          rawResults,
         );
-
-        // Filter out duplicates (DB + in-batch)
-        const seenInBatch = new Set<string>();
-        const toInsert: Record<string, unknown>[] = [];
-
-        for (const r of parsed) {
-          if (existingHashes.has(r.hash) || seenInBatch.has(r.hash)) continue;
-          seenInBatch.add(r.hash);
-
-          toInsert.push({
-            location_id: config.location_id,
-            business_id: businessId,
-            source: platform,
-            title: r.title,
-            text: r.text,
-            url: r.url || null,
-            rating: r.rating,
-            author: r.author,
-            review_date: r.review_date || new Date().toISOString().slice(0, 10),
-            review_hash: r.hash,
-            raw_data: r.raw_data,
-            status: "pending",
-          });
-        }
-
-        // Bulk insert
-        if (toInsert.length > 0) {
-          // Insert in chunks of 500 to avoid payload limits
-          for (let i = 0; i < toInsert.length; i += 500) {
-            const chunk = toInsert.slice(i, i + 500);
-            const { error: insertErr } = await db.from("reviews").insert(chunk);
-            if (insertErr) throw insertErr;
-          }
-        }
 
         // Update scraping config
         const updateData: Record<string, unknown> = {
@@ -326,8 +118,9 @@ Deno.serve(async (req) => {
           last_error: null,
         };
 
-        // Set initial_scrape_done on first successful run
-        if (!config.initial_scrape_done) {
+        // Mark initial scrape as done only if the run returned at least one raw item.
+        // This keeps first-run backfill retryable when providers return empty datasets.
+        if (!config.initial_scrape_done && ingest.parsed_count > 0) {
           updateData.initial_scrape_done = true;
         }
 
@@ -339,7 +132,7 @@ Deno.serve(async (req) => {
         results.push({
           config_id: config.id,
           status: "completed",
-          reviews_stored: toInsert.length,
+          reviews_stored: ingest.inserted_count,
         });
       } catch (innerErr) {
         const msg = innerErr instanceof Error ? innerErr.message : String(innerErr);
