@@ -75,7 +75,7 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
   const supabase = createSupabaseBrowser();
 
   const ratingsKey = (filters.ratings ?? [5, 4, 3, 2, 1]).join(",");
-  const filterDeps = [businessId, filters.locationId, filters.dateFrom, filters.dateTo, filters.source, ratingsKey];
+  const filterDeps = [businessId, filters.locationId, filters.categoryId, filters.dateFrom, filters.dateTo, filters.source, ratingsKey];
 
   useEffect(() => {
     loadStats();
@@ -86,14 +86,18 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
   }, [...filterDeps, aggregation]);
 
   async function loadStats() {
+    const selectFields = filters.categoryId
+      ? "rating, review_categories!inner(category_id)"
+      : "rating";
     let query = supabase
       .from("reviews")
-      .select("rating", { count: "exact" })
+      .select(selectFields, { count: "exact" })
       .eq("status", "completed")
       .eq("business_id", businessId)
       .limit(50000);
 
     if (filters.locationId) query = query.eq("location_id", filters.locationId);
+    if (filters.categoryId) query = query.eq("review_categories.category_id", filters.categoryId);
     if (filters.source) query = query.eq("source", filters.source);
     if (filters.dateFrom) query = query.gte("review_date", filters.dateFrom);
     if (filters.dateTo) query = query.lte("review_date", filters.dateTo);
@@ -130,6 +134,7 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
       p_source: filters.source ?? undefined,
       p_ratings: filters.ratings ?? undefined,
       p_granularity: aggregation,
+      p_category_id: filters.categoryId ?? undefined,
     });
 
     if (error || !data) {

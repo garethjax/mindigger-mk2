@@ -44,10 +44,26 @@ fi
 # --- 2. Start Supabase ---
 log "Starting Supabase..."
 cd "$ROOT_DIR"
-if supabase status &>/dev/null 2>&1; then
+
+_recover_supabase() {
+  warn "Supabase in inconsistent state. Stopping (preserving data) and restarting..."
+  # NEVER use --no-backup: it destroys Docker volumes and all data
+  supabase stop 2>/dev/null || true
+  supabase start || { err "Failed to start Supabase."; exit 1; }
+}
+
+_status_ok() {
+  local out
+  out=$(supabase status 2>&1) || return 1
+  ! echo "$out" | grep -q "container is not running"
+}
+
+if _status_ok; then
   log "Supabase already running."
 else
-  supabase start
+  if ! supabase start; then
+    _recover_supabase
+  fi
   log "Supabase started."
 fi
 
@@ -56,13 +72,54 @@ echo ""
 supabase status || true
 echo ""
 
-# --- 3. Install deps if needed ---
+# --- 3. Post-start database health checks ---
+log "Running post-start health checks..."
+
+SB_SERVICE_ROLE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU'
+
+# 3a. Set pg_cron service role key (not persisted across restarts)
+PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U supabase_admin -d postgres -q -c \
+  "ALTER DATABASE postgres SET app.settings.service_role_key = '$SB_SERVICE_ROLE_KEY';" 2>/dev/null \
+  && log "pg_cron service_role_key set." \
+  || warn "Could not set service_role_key (cron jobs may fail)."
+
+# 3b. Ensure ai_configs has exactly one active record
+AI_COUNT=$(PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -tAq -c \
+  "SELECT count(*) FROM ai_configs WHERE is_active = true;" 2>/dev/null || echo "0")
+
+if [[ "$AI_COUNT" -eq 0 ]]; then
+  warn "ai_configs empty — inserting default OpenAI batch config..."
+  PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -q -c \
+    "INSERT INTO ai_configs (provider, mode, model, config, is_active) VALUES
+       ('openai', 'batch', 'gpt-4.1', '{\"temperature\": 0.1, \"top_p\": 1}', TRUE);" 2>/dev/null \
+    && log "ai_configs seeded." \
+    || warn "Could not seed ai_configs."
+elif [[ "$AI_COUNT" -gt 1 ]]; then
+  warn "ai_configs has $AI_COUNT active records (expected 1). Check for duplicates."
+else
+  log "ai_configs OK (1 active record)."
+fi
+
+# 3c. Check OPENAI_API_KEY is available for edge functions
+if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+  if [[ -f "$ROOT_DIR/supabase/.env" ]] && grep -q "OPENAI_API_KEY" "$ROOT_DIR/supabase/.env"; then
+    warn "OPENAI_API_KEY not exported in shell but found in supabase/.env."
+    warn "Edge functions will use it, but 'supabase start' must be re-run if .env changed."
+  else
+    warn "OPENAI_API_KEY not set. AI features (SWOT, analysis) will not work."
+    warn "Set it with: export OPENAI_API_KEY='sk-...' and restart Supabase."
+  fi
+else
+  log "OPENAI_API_KEY is set."
+fi
+
+# --- 4. Install deps if needed ---
 if [[ ! -d "$WEB_DIR/node_modules" ]]; then
   log "Installing dependencies..."
   cd "$WEB_DIR" && pnpm install
 fi
 
-# --- 4. Start Astro dev server ---
+# --- 5. Start Astro dev server ---
 log "Starting Astro dev server on http://localhost:4321 ..."
 cd "$WEB_DIR"
 pnpm run dev --host 0.0.0.0 &
