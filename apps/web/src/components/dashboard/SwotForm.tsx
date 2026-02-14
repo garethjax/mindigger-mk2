@@ -6,6 +6,7 @@ interface Location {
   name: string;
   business_id: string;
   business_sector_id: string | null;
+  is_competitor: boolean;
 }
 
 interface Category {
@@ -227,7 +228,7 @@ export default function SwotForm({ locations }: Props) {
           >
             {locations.map((loc) => (
               <option key={loc.id} value={loc.id}>
-                {loc.name}
+                {loc.name}{loc.is_competitor ? " (competitor)" : ""}
               </option>
             ))}
           </select>

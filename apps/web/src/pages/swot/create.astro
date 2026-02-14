@@ -10,9 +10,8 @@ const businessId = profile?.business_id;
 const { data: locations } = businessId
   ? await supabase
       .from("locations")
-      .select("id, name, business_id, business_sector_id")
+      .select("id, name, business_id, business_sector_id, is_competitor")
       .eq("business_id", businessId)
-      .eq("is_competitor", false)
       .order("name")
   : { data: [] };
 ---
