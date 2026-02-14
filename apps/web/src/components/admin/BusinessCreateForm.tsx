@@ -1,5 +1,6 @@
 import { useState } from "preact/hooks";
 import { createSupabaseBrowser } from "@/lib/supabase";
+import { PLATFORM_DEFAULTS } from "@/lib/scraping-defaults";
 import PlaceFinder from "./PlaceFinder";
 
 interface Props {
@@ -130,40 +131,24 @@ export default function BusinessCreateForm({ users, sectors, googleMapsApiKey }:
           const sector = sectors.find((s) => s.id === validLocs[0].sectorId);
           const platformConfigs = [];
 
-          // Google Maps config (if Place ID available)
-          if (placeData.placeId && sector?.platforms.includes("google_maps")) {
-            platformConfigs.push({
-              location_id: locId,
-              platform: "google_maps" as const,
-              platform_config: { place_id: placeData.placeId },
-              initial_depth: 2000,
-              recurring_depth: 100,
-              frequency: "weekly" as const,
-            });
-          }
+          const placeMap: [string, string | undefined, string][] = [
+            ["google_maps", placeData.placeId, "place_id"],
+            ["tripadvisor", placeData.tripadvisorUrl, "location_url"],
+            ["booking", placeData.bookingUrl, "location_url"],
+          ];
 
-          // TripAdvisor config
-          if (placeData.tripadvisorUrl && sector?.platforms.includes("tripadvisor")) {
-            platformConfigs.push({
-              location_id: locId,
-              platform: "tripadvisor" as const,
-              platform_config: { location_url: placeData.tripadvisorUrl },
-              initial_depth: 2000,
-              recurring_depth: 30,
-              frequency: "weekly" as const,
-            });
-          }
-
-          // Booking config
-          if (placeData.bookingUrl && sector?.platforms.includes("booking")) {
-            platformConfigs.push({
-              location_id: locId,
-              platform: "booking" as const,
-              platform_config: { location_url: placeData.bookingUrl },
-              initial_depth: 250,
-              recurring_depth: 250,
-              frequency: "monthly" as const,
-            });
+          for (const [platform, value, configKey] of placeMap) {
+            if (value && sector?.platforms.includes(platform)) {
+              const defaults = PLATFORM_DEFAULTS[platform];
+              platformConfigs.push({
+                location_id: locId,
+                platform,
+                platform_config: { [configKey]: value },
+                initial_depth: defaults?.initial_depth ?? 1000,
+                recurring_depth: defaults?.recurring_depth ?? 50,
+                frequency: defaults?.frequency ?? "weekly",
+              });
+            }
           }
 
           if (platformConfigs.length > 0) {
