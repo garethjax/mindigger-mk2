@@ -367,6 +367,8 @@ deno_version = 2
 
 [edge_runtime.secrets]
 OPENAI_API_KEY = "env(OPENAI_API_KEY)"
+BRAVE_API_KEY = "env(BRAVE_API_KEY)"
+BOTSTER_API_KEY = "env(BOTSTER_API_KEY)"
 
 # Edge functions called by authenticated users need verify_jwt = false
 # because the gateway cannot verify ES256 JWTs (new auth format).
@@ -381,6 +383,18 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.analysis-poll]
+verify_jwt = false
+
+[functions.analysis-batch-admin]
+verify_jwt = false
+
+[functions.brave-search]
+verify_jwt = false
+
+[functions.scraping-trigger]
+verify_jwt = false
+
+[functions.scraping-import]
 verify_jwt = false
 
 [analytics]

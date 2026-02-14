@@ -6,6 +6,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WEB_DIR="$ROOT_DIR/apps/web"
+MODE="${1:-}"  # "restart" to stop+start Supabase without Astro
 
 # Colors
 GREEN='\033[0;32m'
@@ -27,6 +28,60 @@ cleanup() {
   log "Done."
 }
 trap cleanup EXIT INT TERM
+
+# --- Restart mode: stop + start + health checks, no Astro ---
+if [[ "$MODE" == "restart" ]]; then
+  log "Restarting Supabase..."
+  cd "$ROOT_DIR"
+  supabase stop 2>/dev/null || true
+  supabase start || { err "Failed to start Supabase."; exit 1; }
+  log "Supabase restarted."
+  echo ""
+  supabase status || true
+  echo ""
+
+  log "Running post-start health checks..."
+
+  SB_SERVICE_ROLE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU'
+
+  PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U supabase_admin -d postgres -q -c \
+    "ALTER DATABASE postgres SET app.settings.service_role_key = '$SB_SERVICE_ROLE_KEY';" 2>/dev/null \
+    && log "pg_cron service_role_key set." \
+    || warn "Could not set service_role_key (cron jobs may fail)."
+
+  AI_COUNT=$(PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -tAq -c \
+    "SELECT count(*) FROM ai_configs WHERE is_active = true;" 2>/dev/null || echo "0")
+  if [[ "$AI_COUNT" -eq 0 ]]; then
+    warn "ai_configs empty — inserting default OpenAI batch config..."
+    PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -q -c \
+      "INSERT INTO ai_configs (provider, mode, model, config, is_active) VALUES
+         ('openai', 'batch', 'gpt-4.1', '{\"temperature\": 0.1, \"top_p\": 1}', TRUE);" 2>/dev/null \
+      && log "ai_configs seeded." \
+      || warn "Could not seed ai_configs."
+  else
+    log "ai_configs OK ($AI_COUNT active record(s))."
+  fi
+
+  # --- Restart Astro dev server ---
+  log "Starting Astro dev server on http://localhost:4321 ..."
+  cd "$WEB_DIR"
+  pnpm run dev --host 0.0.0.0 &
+  ASTRO_PID=$!
+
+  echo ""
+  log "=========================================="
+  log "  Mind Digger MK2 — Restarted"
+  log "=========================================="
+  log "  Astro:    http://localhost:4321"
+  log "  Supabase: http://127.0.0.1:54321"
+  log "  Studio:   http://127.0.0.1:54323"
+  log "=========================================="
+  echo ""
+  log "Press Ctrl+C to stop."
+
+  wait "$ASTRO_PID"
+  exit 0
+fi
 
 # --- 1. Check prerequisites ---
 for cmd in docker supabase pnpm; do

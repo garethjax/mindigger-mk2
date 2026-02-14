@@ -55,6 +55,8 @@ export default function AIConfigPanel({ configs, tokenUsage, batches }: Props) {
   const [editMode, setEditMode] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [batchActionLoading, setBatchActionLoading] = useState<string | null>(null);
+  const [batchRows, setBatchRows] = useState<Batch[]>(batches);
 
   const supabase = createSupabaseBrowser();
 
@@ -97,6 +99,73 @@ export default function AIConfigPanel({ configs, tokenUsage, batches }: Props) {
     } else {
       setMessage({ type: "ok", text: !currentActive ? "Provider attivato!" : "Provider disattivato!" });
     }
+  }
+
+  async function runBatchAction(batchId: string, action: "stop" | "restart" | "reprocess") {
+    const key = `${batchId}:${action}`;
+    setBatchActionLoading(key);
+    setMessage(null);
+
+    const { data, error } = await supabase.functions.invoke("analysis-batch-admin", {
+      body: { batch_id: batchId, action },
+    });
+
+    if (error) {
+      let detail = error.message;
+      const context = (error as { context?: Response }).context;
+      if (context) {
+        const bodyText = await context.text().catch(() => "");
+        detail = `HTTP ${context.status}${bodyText ? ` - ${bodyText}` : ""}`;
+      }
+      setMessage({ type: "err", text: `Batch ${action}: ${detail}` });
+      setBatchActionLoading(null);
+      return;
+    }
+
+    let nextStatus: string | null = null;
+    let msgType: "ok" | "err" = "ok";
+    let msgText = `Azione "${action}" completata.`;
+
+    if (action === "reprocess") {
+      const result = (data as { poll_result?: { results?: Array<{ status?: string; processed?: number }> } })
+        ?.poll_result?.results?.[0];
+      const s = result?.status ?? "unknown";
+      nextStatus = s === "still_processing"
+        ? "in_progress"
+        : s === "no_output_file"
+          ? "failed"
+          : s;
+
+      if (s === "completed") {
+        msgText = `Riavvio completato: batch completato (${result?.processed ?? 0} review processate).`;
+      } else if (s === "still_processing") {
+        msgText = "Riavvio eseguito: batch ancora in elaborazione lato provider.";
+      } else if (s === "cancelled") {
+        msgType = "err";
+        msgText = "Riavvio eseguito: batch risulta cancellato lato provider.";
+      } else if (s === "no_output_file") {
+        msgType = "err";
+        msgText = "Riavvio eseguito: nessun output file disponibile per il batch.";
+      } else if (s === "failed") {
+        msgType = "err";
+        msgText = "Riavvio eseguito: batch fallito lato provider.";
+      } else {
+        msgType = "err";
+        msgText = `Riavvio eseguito: stato batch "${s}".`;
+      }
+    } else if (action === "stop") {
+      nextStatus = "cancelled";
+    } else if (action === "restart") {
+      nextStatus = "in_progress";
+    }
+
+    setMessage({ type: msgType, text: msgText });
+    setBatchRows((prev) => prev.map((row) => {
+      if (row.id !== batchId) return row;
+      const now = new Date().toISOString();
+      return { ...row, status: nextStatus ?? row.status, updated_at: now };
+    }));
+    setBatchActionLoading(null);
   }
 
   // Token usage aggregation
@@ -327,7 +396,8 @@ export default function AIConfigPanel({ configs, tokenUsage, batches }: Props) {
 
       {/* Batches tab */}
       {tab === "batches" && (
-        <div class="overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <div class="space-y-3">
+          <div class="overflow-hidden rounded-lg border border-gray-200 bg-white">
           <table class="min-w-full divide-y divide-gray-200">
             <thead class="bg-gray-50">
               <tr>
@@ -337,10 +407,11 @@ export default function AIConfigPanel({ configs, tokenUsage, batches }: Props) {
                 <th class="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Status</th>
                 <th class="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Creato</th>
                 <th class="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Aggiornato</th>
+                <th class="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Azioni</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
-              {batches.map((b) => {
+              {batchRows.map((b) => {
                 const statusColor = BATCH_STATUS_COLORS[b.status] ?? "bg-gray-100 text-gray-600";
                 return (
                   <tr key={b.id}>
@@ -360,14 +431,39 @@ export default function AIConfigPanel({ configs, tokenUsage, batches }: Props) {
                     <td class="px-4 py-2 text-xs text-gray-500">
                       {new Date(b.updated_at).toLocaleString("it-IT")}
                     </td>
+                    <td class="px-4 py-2">
+                      <div class="flex flex-wrap gap-2">
+                        {b.status === "in_progress" && (
+                          <button
+                            type="button"
+                            disabled={batchActionLoading === `${b.id}:stop`}
+                            onClick={() => runBatchAction(b.id, "stop")}
+                            class="rounded border border-red-300 bg-white px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                          >
+                            {batchActionLoading === `${b.id}:stop` ? "..." : "Cancella"}
+                          </button>
+                        )}
+                        {(b.status === "failed" || b.status === "cancelled") && (
+                          <button
+                            type="button"
+                            disabled={batchActionLoading === `${b.id}:reprocess`}
+                            onClick={() => runBatchAction(b.id, "reprocess")}
+                            class="rounded border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            {batchActionLoading === `${b.id}:reprocess` ? "..." : "Riavvia"}
+                          </button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-          {batches.length === 0 && (
+          {batchRows.length === 0 && (
             <div class="p-8 text-center text-sm text-gray-400">Nessun batch AI.</div>
           )}
+          </div>
         </div>
       )}
     </div>

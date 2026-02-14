@@ -8,8 +8,6 @@ interface Profile {
   business_id: string | null;
   account_enabled: boolean;
   account_locked: boolean;
-  active_subscription: boolean;
-  free_trial_consumed: boolean;
 }
 
 interface Business {
@@ -28,7 +26,6 @@ export default function UserEditForm({ profile, allBusinesses }: Props) {
   const [businessId, setBusinessId] = useState(profile.business_id ?? "");
   const [enabled, setEnabled] = useState(profile.account_enabled);
   const [locked, setLocked] = useState(profile.account_locked);
-  const [subscription, setSubscription] = useState(profile.active_subscription);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
@@ -47,7 +44,6 @@ export default function UserEditForm({ profile, allBusinesses }: Props) {
         business_id: businessId || null,
         account_enabled: enabled,
         account_locked: locked,
-        active_subscription: subscription,
       })
       .eq("id", profile.id);
 
@@ -128,15 +124,6 @@ export default function UserEditForm({ profile, allBusinesses }: Props) {
               class="rounded border-gray-300"
             />
             <span class="text-sm text-gray-700">Account bloccato</span>
-          </label>
-          <label class="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={subscription}
-              onChange={(e) => setSubscription((e.target as HTMLInputElement).checked)}
-              class="rounded border-gray-300"
-            />
-            <span class="text-sm text-gray-700">Abbonamento attivo</span>
           </label>
         </div>
 

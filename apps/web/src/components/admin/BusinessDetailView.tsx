@@ -1,5 +1,7 @@
 import { useState } from "preact/hooks";
 import { createSupabaseBrowser } from "@/lib/supabase";
+import { PLATFORM_DEFAULTS } from "@/lib/scraping-defaults";
+import PlaceFinder from "./PlaceFinder";
 
 interface Business {
   id: string;
@@ -16,6 +18,7 @@ interface Location {
   name: string;
   is_competitor: boolean;
   business_sector_id: string;
+  recurring_updates: boolean;
   created_at: string;
 }
 
@@ -35,6 +38,21 @@ interface Sector {
   platforms: string[];
 }
 
+interface PlaceData {
+  placeId: string;
+  name: string;
+  address: string;
+  tripadvisorUrl?: string;
+  bookingUrl?: string;
+}
+
+interface PlatformFields {
+  google_maps: string;
+  tripadvisor: string;
+  booking: string;
+  trustpilot: string;
+}
+
 interface Props {
   business: Business;
   locations: Location[];
@@ -42,6 +60,7 @@ interface Props {
   sectors: Sector[];
   usersLabel: string;
   reviewCount: number;
+  googleMapsApiKey?: string;
 }
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
@@ -120,6 +139,13 @@ async function downloadLocationCsv(
 }
 // ─────────────────────────────────────────────────────────────────────
 
+const INITIAL_PLATFORM_FIELDS: PlatformFields = {
+  google_maps: "",
+  tripadvisor: "",
+  booking: "",
+  trustpilot: "",
+};
+
 export default function BusinessDetailView({
   business,
   locations: initialLocations,
@@ -127,10 +153,13 @@ export default function BusinessDetailView({
   sectors,
   usersLabel,
   reviewCount,
+  googleMapsApiKey,
 }: Props) {
   const [locations, setLocations] = useState(initialLocations);
   const [configs, setConfigs] = useState(initialConfigs);
   const [triggerLoading, setTriggerLoading] = useState<string | null>(null);
+  const [importLoading, setImportLoading] = useState<string | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState<string | null>(null);
   const [csvLoading, setCsvLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -139,6 +168,20 @@ export default function BusinessDetailView({
   const [newLocCompetitor, setNewLocCompetitor] = useState(false);
   const [addLoading, setAddLoading] = useState(false);
 
+  // Business edit state
+  const [editingBusiness, setEditingBusiness] = useState(false);
+  const [bizName, setBizName] = useState(business.name);
+  const [bizType, setBizType] = useState(business.type);
+  const [bizRagioneSociale, setBizRagioneSociale] = useState(business.ragione_sociale ?? "");
+  const [bizEmail, setBizEmail] = useState(business.email ?? "");
+  const [bizReferente, setBizReferente] = useState(business.referente_nome ?? "");
+  const [bizSaving, setBizSaving] = useState(false);
+
+  // Scraping config form state
+  const [configuringLocationId, setConfiguringLocationId] = useState<string | null>(null);
+  const [platformFields, setPlatformFields] = useState<PlatformFields>({ ...INITIAL_PLATFORM_FIELDS });
+  const [configSaving, setConfigSaving] = useState(false);
+
   const supabase = createSupabaseBrowser();
 
   const configsByLocation = new Map<string, ScrapingConfig[]>();
@@ -146,6 +189,31 @@ export default function BusinessDetailView({
     const list = configsByLocation.get(c.location_id) ?? [];
     list.push(c);
     configsByLocation.set(c.location_id, list);
+  }
+
+  async function saveBusiness(e: Event) {
+    e.preventDefault();
+    setBizSaving(true);
+    setMessage(null);
+
+    const { error } = await supabase
+      .from("businesses")
+      .update({
+        name: bizName.trim(),
+        type: bizType,
+        ragione_sociale: bizRagioneSociale.trim() || null,
+        email: bizEmail.trim() || null,
+        referente_nome: bizReferente.trim() || null,
+      })
+      .eq("id", business.id);
+
+    if (error) {
+      setMessage({ type: "err", text: `Errore: ${error.message}` });
+    } else {
+      setMessage({ type: "ok", text: "Dati azienda aggiornati" });
+      setEditingBusiness(false);
+    }
+    setBizSaving(false);
   }
 
   async function addLocation(e: Event) {
@@ -162,7 +230,7 @@ export default function BusinessDetailView({
         business_sector_id: newLocSector,
         is_competitor: newLocCompetitor,
       })
-      .select("id, name, is_competitor, business_sector_id, created_at")
+      .select("id, name, is_competitor, business_sector_id, recurring_updates, created_at")
       .single();
 
     if (error) {
@@ -194,51 +262,330 @@ export default function BusinessDetailView({
     setTriggerLoading(null);
   }
 
+  async function importReviewsFromJson(configId: string, platform: string, file: File | null) {
+    if (!file) return;
+
+    const key = `${configId}:import`;
+    setImportLoading(key);
+    setMessage(null);
+
+    try {
+      const rawText = await file.text();
+      const rawJson = JSON.parse(rawText);
+
+      const { data, error } = await supabase.functions.invoke("scraping-import", {
+        body: {
+          config_id: configId,
+          raw_reviews: rawJson,
+          trigger_analysis: false,
+        },
+      });
+
+      if (error) {
+        let detail = error.message;
+        const context = (error as { context?: Response }).context;
+        if (context) {
+          const bodyText = await context.text().catch(() => "");
+          detail = `HTTP ${context.status}${bodyText ? ` - ${bodyText}` : ""}`;
+        }
+        setMessage({ type: "err", text: `Errore import: ${detail}` });
+      } else {
+        const inserted = Number(data?.inserted_reviews ?? 0);
+        const parsed = Number(data?.parsed_reviews ?? 0);
+        const platformLabel = PLATFORM_LABELS[platform] ?? platform;
+        setMessage({
+          type: "ok",
+          text: `Import ${platformLabel} completato: ${inserted} inserite su ${parsed} review lette. Analisi AI in coda via cron.`,
+        });
+      }
+    } catch {
+      setMessage({ type: "err", text: "JSON non valido. Controlla il file esportato da Botster." });
+    } finally {
+      setImportLoading(null);
+    }
+  }
+
+  async function triggerLocationPipeline(locationId: string, locationName: string) {
+    setAnalysisLoading(locationId);
+    setMessage(null);
+
+    const { data, error } = await supabase.functions.invoke("analysis-submit", {
+      body: { location_id: locationId },
+    });
+
+    if (error) {
+      let detail = error.message;
+      const context = (error as { context?: Response }).context;
+      if (context) {
+        const bodyText = await context.text().catch(() => "");
+        detail = `HTTP ${context.status}${bodyText ? ` - ${bodyText}` : ""}`;
+      }
+      setMessage({ type: "err", text: `Pipeline AI (${locationName}): ${detail}` });
+      setAnalysisLoading(null);
+      return;
+    }
+
+    const payload = data as { submitted?: number; batches?: string[]; message?: string; active_batches?: number };
+    if (payload?.message?.toLowerCase().includes("already in progress")) {
+      setMessage({
+        type: "ok",
+        text: `Pipeline AI (${locationName}): già in corso (${payload.active_batches ?? 1} batch attivi).`,
+      });
+      setAnalysisLoading(null);
+      return;
+    }
+
+    const submitted = Number(payload?.submitted ?? 0);
+    const batches = ((data as { batches?: string[] })?.batches ?? []).length;
+    if (submitted === 0) {
+      setMessage({ type: "ok", text: `Pipeline AI (${locationName}): nessuna review pending da inviare.` });
+    } else {
+      setMessage({
+        type: "ok",
+        text: `Pipeline AI (${locationName}) avviata: ${submitted} review inviate, ${batches} batch creati.`,
+      });
+    }
+    setAnalysisLoading(null);
+  }
+
+  async function toggleRecurring(locationId: string, current: boolean) {
+    const { error } = await supabase
+      .from("locations")
+      .update({ recurring_updates: !current })
+      .eq("id", locationId);
+
+    if (error) {
+      setMessage({ type: "err", text: `Errore: ${error.message}` });
+    } else {
+      setLocations(locations.map((l) =>
+        l.id === locationId ? { ...l, recurring_updates: !current } : l
+      ));
+    }
+  }
+
+  function openConfigForm(locationId: string) {
+    setConfiguringLocationId(locationId);
+    setPlatformFields({ ...INITIAL_PLATFORM_FIELDS });
+    setMessage(null);
+  }
+
+  function closeConfigForm() {
+    setConfiguringLocationId(null);
+    setPlatformFields({ ...INITIAL_PLATFORM_FIELDS });
+  }
+
+  function handlePlaceSelected(data: PlaceData) {
+    setPlatformFields((prev) => ({
+      ...prev,
+      google_maps: data.placeId || prev.google_maps,
+      tripadvisor: data.tripadvisorUrl || prev.tripadvisor,
+      booking: data.bookingUrl || prev.booking,
+    }));
+  }
+
+  async function saveScrapingConfigs(locationId: string, sectorId: string) {
+    const sector = sectors.find((s) => s.id === sectorId);
+    if (!sector) return;
+
+    setConfigSaving(true);
+    setMessage(null);
+
+    // Skip platforms already configured for this location
+    const alreadyConfigured = configs
+      .filter((c) => c.location_id === locationId)
+      .map((c) => c.platform);
+
+    const canAdd = (p: string) =>
+      sector.platforms.includes(p) && !alreadyConfigured.includes(p);
+
+    const platformConfigs: {
+      location_id: string;
+      platform: string;
+      platform_config: Record<string, string>;
+      initial_depth: number;
+      recurring_depth: number;
+      frequency: string;
+    }[] = [];
+
+    const platformFieldMap: Record<string, { key: keyof PlatformFields; configKey: string }> = {
+      google_maps: { key: "google_maps", configKey: "place_id" },
+      tripadvisor: { key: "tripadvisor", configKey: "location_url" },
+      booking: { key: "booking", configKey: "location_url" },
+      trustpilot: { key: "trustpilot", configKey: "location_url" },
+    };
+
+    for (const [platform, { key, configKey }] of Object.entries(platformFieldMap)) {
+      const value = platformFields[key];
+      if (value && canAdd(platform)) {
+        const defaults = PLATFORM_DEFAULTS[platform];
+        platformConfigs.push({
+          location_id: locationId,
+          platform,
+          platform_config: { [configKey]: value },
+          initial_depth: defaults?.initial_depth ?? 1000,
+          recurring_depth: defaults?.recurring_depth ?? 50,
+          frequency: defaults?.frequency ?? "weekly",
+        });
+      }
+    }
+
+    if (platformConfigs.length === 0) {
+      setMessage({ type: "err", text: "Compila almeno una piattaforma prima di salvare." });
+      setConfigSaving(false);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("scraping_configs")
+      .insert(platformConfigs)
+      .select("id, location_id, platform, status, initial_scrape_done, last_scraped_at, platform_config");
+
+    if (error) {
+      setMessage({ type: "err", text: `Errore salvataggio: ${error.message}` });
+    } else if (data) {
+      setConfigs([...configs, ...data]);
+      setMessage({ type: "ok", text: `${data.length} piattaforma/e configurata/e` });
+      closeConfigForm();
+    }
+    setConfigSaving(false);
+  }
+
   return (
     <div class="space-y-6">
       {/* Dati Azienda */}
       <div class="rounded-lg border border-gray-200 bg-white p-6">
-        <h2 class="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Dati Azienda</h2>
-        <div class="grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <span class="text-gray-400">Nome:</span>{" "}
-            <span class="font-medium">{business.name}</span>
-          </div>
-          <div>
-            <span class="text-gray-400">Tipo:</span> {business.type}
-          </div>
-          {business.ragione_sociale && (
-            <div>
-              <span class="text-gray-400">Ragione Sociale:</span>{" "}
-              <span class="font-medium">{business.ragione_sociale}</span>
-            </div>
+        <div class="mb-3 flex items-center justify-between">
+          <h2 class="text-sm font-bold uppercase tracking-wide text-gray-500">Dati Azienda</h2>
+          {!editingBusiness && (
+            <button
+              type="button"
+              onClick={() => setEditingBusiness(true)}
+              class="text-xs font-medium text-blue-600 hover:text-blue-800"
+            >
+              Modifica
+            </button>
           )}
-          {business.email && (
-            <div>
-              <span class="text-gray-400">Email:</span> {business.email}
-            </div>
-          )}
-          {business.referente_nome && (
-            <div>
-              <span class="text-gray-400">Referente:</span> {business.referente_nome}
-            </div>
-          )}
-          <div>
-            <span class="text-gray-400">Utenti:</span> {usersLabel}
-          </div>
-          <div>
-            <span class="text-gray-400">Recensioni totali:</span>{" "}
-            <span class="font-medium">{reviewCount}</span>
-          </div>
-          <div>
-            <span class="text-gray-400">Embeddings:</span>{" "}
-            {business.embeddings_enabled ? (
-              <span class="text-purple-600 font-medium">Attivi</span>
-            ) : (
-              <span class="text-gray-400">Disattivati</span>
-            )}
-          </div>
         </div>
+
+        {editingBusiness ? (
+          <form onSubmit={saveBusiness} class="space-y-3">
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-500">Nome</label>
+                <input
+                  type="text"
+                  required
+                  value={bizName}
+                  onInput={(e) => setBizName((e.target as HTMLInputElement).value)}
+                  class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-500">Tipo</label>
+                <select
+                  value={bizType}
+                  onChange={(e) => setBizType((e.target as HTMLSelectElement).value)}
+                  class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="organization">Organization</option>
+                  <option value="restaurant">Restaurant</option>
+                  <option value="hotel">Hotel</option>
+                </select>
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-500">Ragione Sociale</label>
+                <input
+                  type="text"
+                  value={bizRagioneSociale}
+                  onInput={(e) => setBizRagioneSociale((e.target as HTMLInputElement).value)}
+                  class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-500">Email</label>
+                <input
+                  type="email"
+                  value={bizEmail}
+                  onInput={(e) => setBizEmail((e.target as HTMLInputElement).value)}
+                  class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-500">Referente</label>
+                <input
+                  type="text"
+                  value={bizReferente}
+                  onInput={(e) => setBizReferente((e.target as HTMLInputElement).value)}
+                  class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+            </div>
+            <div class="flex gap-2">
+              <button
+                type="submit"
+                disabled={bizSaving}
+                class="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {bizSaving ? "..." : "Salva"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingBusiness(false);
+                  setBizName(business.name);
+                  setBizType(business.type);
+                  setBizRagioneSociale(business.ragione_sociale ?? "");
+                  setBizEmail(business.email ?? "");
+                  setBizReferente(business.referente_nome ?? "");
+                }}
+                class="rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+              >
+                Annulla
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div class="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <span class="text-gray-400">Nome:</span>{" "}
+              <span class="font-medium">{bizName}</span>
+            </div>
+            <div>
+              <span class="text-gray-400">Tipo:</span> {bizType}
+            </div>
+            {bizRagioneSociale && (
+              <div>
+                <span class="text-gray-400">Ragione Sociale:</span>{" "}
+                <span class="font-medium">{bizRagioneSociale}</span>
+              </div>
+            )}
+            {bizEmail && (
+              <div>
+                <span class="text-gray-400">Email:</span> {bizEmail}
+              </div>
+            )}
+            {bizReferente && (
+              <div>
+                <span class="text-gray-400">Referente:</span> {bizReferente}
+              </div>
+            )}
+            <div>
+              <span class="text-gray-400">Utenti:</span> {usersLabel}
+            </div>
+            <div>
+              <span class="text-gray-400">Recensioni totali:</span>{" "}
+              <span class="font-medium">{reviewCount}</span>
+            </div>
+            <div>
+              <span class="text-gray-400">Embeddings:</span>{" "}
+              {business.embeddings_enabled ? (
+                <span class="text-purple-600 font-medium">Attivi</span>
+              ) : (
+                <span class="text-gray-400">Disattivati</span>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {message && (
@@ -335,6 +682,18 @@ export default function BusinessDetailView({
                       )}
                     </div>
                     <div class="flex items-center gap-3">
+                      <label
+                        class="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer"
+                        title={loc.recurring_updates ? "Aggiornamento ricorrente attivo" : "Aggiornamento ricorrente disattivato"}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={loc.recurring_updates}
+                          onChange={() => toggleRecurring(loc.id, loc.recurring_updates)}
+                          class="rounded border-gray-300"
+                        />
+                        Ricorrente
+                      </label>
                       <button
                         type="button"
                         disabled={csvLoading === loc.id}
@@ -354,6 +713,15 @@ export default function BusinessDetailView({
                       >
                         {csvLoading === loc.id ? "..." : "Download recensioni"}
                       </button>
+                      <button
+                        type="button"
+                        disabled={analysisLoading === loc.id}
+                        onClick={() => triggerLocationPipeline(loc.id, loc.name)}
+                        class="rounded border border-blue-300 bg-white px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+                        title="Invia in pipeline AI le recensioni pending di questa location"
+                      >
+                        {analysisLoading === loc.id ? "..." : "Avvia Pipeline AI"}
+                      </button>
                       <span class="text-xs text-gray-400">
                         {sector?.name ?? "—"}
                       </span>
@@ -361,58 +729,219 @@ export default function BusinessDetailView({
                   </div>
 
                   {/* Scraping configs for this location */}
-                  {locConfigs.length > 0 ? (
-                    <div class="mt-2 space-y-2">
-                      {locConfigs.map((cfg) => {
-                        const st = STATUS_LABELS[cfg.status] ?? STATUS_LABELS.idle;
-                        const key = `${loc.id}:${cfg.platform}`;
-                        const isLoading = triggerLoading === key;
-                        const configStr = Object.entries(cfg.platform_config ?? {})
-                          .map(([k, v]) => `${k}: ${v}`)
-                          .join(", ");
+                  {(() => {
+                    const configuredPlatforms = locConfigs.map((c) => c.platform);
+                    const missingPlatforms = (sector?.platforms ?? []).filter(
+                      (p) => !configuredPlatforms.includes(p)
+                    );
+                    const isConfiguring = configuringLocationId === loc.id;
 
-                        return (
-                          <div
-                            key={cfg.id}
-                            class="flex items-center justify-between rounded border border-gray-200 bg-white px-3 py-2"
-                          >
-                            <div class="flex items-center gap-3">
-                              <span class="text-xs font-medium text-gray-600">
-                                {PLATFORM_LABELS[cfg.platform] ?? cfg.platform}
-                              </span>
-                              <span class={`rounded-full px-2 py-0.5 text-xs font-medium ${st.color}`}>
-                                {st.label}
-                              </span>
-                              {cfg.initial_scrape_done && (
-                                <span class="text-xs text-gray-400">
-                                  Ultimo: {cfg.last_scraped_at
-                                    ? new Date(cfg.last_scraped_at).toLocaleDateString("it-IT")
-                                    : "—"}
+                    return (
+                      <div class="mt-2 space-y-2">
+                        {/* Existing configs */}
+                        {locConfigs.map((cfg) => {
+                          const st = STATUS_LABELS[cfg.status] ?? STATUS_LABELS.idle;
+                          const key = `${loc.id}:${cfg.platform}`;
+                          const isLoading = triggerLoading === key;
+                          const isImporting = importLoading === `${cfg.id}:import`;
+                          const configStr = Object.entries(cfg.platform_config ?? {})
+                            .map(([k, v]) => `${k}: ${v}`)
+                            .join(", ");
+
+                          return (
+                            <div
+                              key={cfg.id}
+                              class="flex items-center justify-between rounded border border-gray-200 bg-white px-3 py-2"
+                            >
+                              <div class="flex items-center gap-3">
+                                <span class="text-xs font-medium text-gray-600">
+                                  {PLATFORM_LABELS[cfg.platform] ?? cfg.platform}
                                 </span>
+                                <span class={`rounded-full px-2 py-0.5 text-xs font-medium ${st.color}`}>
+                                  {st.label}
+                                </span>
+                                {cfg.initial_scrape_done && (
+                                  <span class="text-xs text-gray-400">
+                                    Ultimo: {cfg.last_scraped_at
+                                      ? new Date(cfg.last_scraped_at).toLocaleDateString("it-IT")
+                                      : "—"}
+                                  </span>
+                                )}
+                                {configStr && (
+                                  <span class="text-xs text-gray-300 font-mono truncate max-w-48">
+                                    {configStr}
+                                  </span>
+                                )}
+                              </div>
+                              <div class="flex items-center gap-2">
+                                <label class="cursor-pointer rounded border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50">
+                                  {isImporting ? "Import..." : "Importa recensioni"}
+                                  <input
+                                    type="file"
+                                    accept=".json,application/json"
+                                    class="hidden"
+                                    disabled={isImporting || isLoading}
+                                    onChange={(e) => {
+                                      const input = e.target as HTMLInputElement;
+                                      const file = input.files?.[0] ?? null;
+                                      void importReviewsFromJson(cfg.id, cfg.platform, file);
+                                      input.value = "";
+                                    }}
+                                  />
+                                </label>
+                                <button
+                                  type="button"
+                                  disabled={isLoading || isImporting || cfg.status === "elaborating" || cfg.status === "checking"}
+                                  onClick={() => triggerScraping(loc.id, cfg.platform)}
+                                  class="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                                >
+                                  {isLoading ? "..." : "Avvia Scraping rapido"}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {/* Add platform button or form */}
+                        {isConfiguring ? (
+                          <div class="rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-4">
+                            <div class="flex items-center justify-between">
+                              <h3 class="text-sm font-bold text-gray-700">
+                                {locConfigs.length > 0 ? "Aggiungi piattaforma" : "Configura Piattaforme"}
+                              </h3>
+                              <button
+                                type="button"
+                                onClick={closeConfigForm}
+                                class="text-xs text-gray-400 hover:text-gray-600"
+                              >
+                                Annulla
+                              </button>
+                            </div>
+
+                            {/* PlaceFinder (if API key available) */}
+                            {googleMapsApiKey && (
+                              <div class="rounded-lg border border-gray-200 bg-white p-4">
+                                <h4 class="mb-2 text-xs font-medium text-gray-500 uppercase">
+                                  Cerca luogo (auto-compila i campi)
+                                </h4>
+                                <PlaceFinder
+                                  googleMapsApiKey={googleMapsApiKey}
+                                  onPlaceSelected={handlePlaceSelected}
+                                />
+                              </div>
+                            )}
+
+                            {/* Manual platform fields — only show missing platforms */}
+                            <div class="space-y-3">
+                              <h4 class="text-xs font-medium text-gray-500 uppercase">
+                                {locConfigs.length > 0
+                                  ? "Piattaforme da configurare"
+                                  : `Piattaforme disponibili per ${sector?.name ?? "questo settore"}`}
+                              </h4>
+
+                              {missingPlatforms.includes("google_maps") && (
+                                <div>
+                                  <label class="mb-1 block text-xs font-medium text-gray-600">
+                                    Google Maps — Place ID
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={platformFields.google_maps}
+                                    onInput={(e) =>
+                                      setPlatformFields((p) => ({ ...p, google_maps: (e.target as HTMLInputElement).value }))
+                                    }
+                                    placeholder="ChIJ..."
+                                    class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm font-mono focus:border-blue-500 focus:outline-none"
+                                  />
+                                </div>
                               )}
-                              {configStr && (
-                                <span class="text-xs text-gray-300 font-mono truncate max-w-48">
-                                  {configStr}
-                                </span>
+
+                              {missingPlatforms.includes("tripadvisor") && (
+                                <div>
+                                  <label class="mb-1 block text-xs font-medium text-gray-600">
+                                    TripAdvisor — URL
+                                  </label>
+                                  <input
+                                    type="url"
+                                    value={platformFields.tripadvisor}
+                                    onInput={(e) =>
+                                      setPlatformFields((p) => ({ ...p, tripadvisor: (e.target as HTMLInputElement).value }))
+                                    }
+                                    placeholder="https://tripadvisor.com/..."
+                                    class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+                                  />
+                                </div>
+                              )}
+
+                              {missingPlatforms.includes("booking") && (
+                                <div>
+                                  <label class="mb-1 block text-xs font-medium text-gray-600">
+                                    Booking.com — URL
+                                  </label>
+                                  <input
+                                    type="url"
+                                    value={platformFields.booking}
+                                    onInput={(e) =>
+                                      setPlatformFields((p) => ({ ...p, booking: (e.target as HTMLInputElement).value }))
+                                    }
+                                    placeholder="https://booking.com/hotel/..."
+                                    class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+                                  />
+                                </div>
+                              )}
+
+                              {missingPlatforms.includes("trustpilot") && (
+                                <div>
+                                  <label class="mb-1 block text-xs font-medium text-gray-600">
+                                    Trustpilot — URL
+                                  </label>
+                                  <input
+                                    type="url"
+                                    value={platformFields.trustpilot}
+                                    onInput={(e) =>
+                                      setPlatformFields((p) => ({ ...p, trustpilot: (e.target as HTMLInputElement).value }))
+                                    }
+                                    placeholder="https://trustpilot.com/review/..."
+                                    class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+                                  />
+                                </div>
+                              )}
+
+                              {missingPlatforms.length === 0 && (
+                                <p class="text-xs text-gray-400">
+                                  Tutte le piattaforme del settore sono già configurate.
+                                </p>
                               )}
                             </div>
+
+                            {missingPlatforms.length > 0 && (
+                              <button
+                                type="button"
+                                disabled={configSaving}
+                                onClick={() => saveScrapingConfigs(loc.id, loc.business_sector_id)}
+                                class="rounded bg-green-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                              >
+                                {configSaving ? "Salvataggio..." : "Salva configurazione"}
+                              </button>
+                            )}
+                          </div>
+                        ) : missingPlatforms.length > 0 ? (
+                          <div class="flex items-center gap-2">
+                            {locConfigs.length === 0 && (
+                              <p class="text-xs text-gray-400">Nessuna configurazione scraping.</p>
+                            )}
                             <button
                               type="button"
-                              disabled={isLoading || cfg.status === "elaborating" || cfg.status === "checking"}
-                              onClick={() => triggerScraping(loc.id, cfg.platform)}
-                              class="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                              onClick={() => openConfigForm(loc.id)}
+                              class="text-xs font-medium text-blue-600 hover:text-blue-800"
                             >
-                              {isLoading ? "..." : "Avvia Scraping rapido"}
+                              {locConfigs.length > 0 ? "+ Aggiungi piattaforma" : "Configura piattaforme"}
                             </button>
                           </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p class="mt-1 text-xs text-gray-400">
-                      Nessuna configurazione scraping. Configura le piattaforme per questa location.
-                    </p>
-                  )}
+                        ) : null}
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}

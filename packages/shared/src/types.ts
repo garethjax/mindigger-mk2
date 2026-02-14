@@ -18,8 +18,6 @@ export interface Profile {
   avatar_url: string | null;
   account_enabled: boolean;
   account_locked: boolean;
-  active_subscription: boolean;
-  free_trial_consumed: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -56,6 +54,7 @@ export interface Location {
   business_id: string;
   business_sector_id: string;
   is_competitor: boolean;
+  recurring_updates: boolean;
   report_sent: boolean;
   created_at: string;
   updated_at: string;

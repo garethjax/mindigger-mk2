@@ -17,7 +17,7 @@ if (!business) return Astro.redirect("/regia/businesses");
 const [locationsRes, scrapingRes, sectorsRes, usersRes, reviewCountRes] = await Promise.all([
   supabase
     .from("locations")
-    .select("id, name, is_competitor, business_sector_id, created_at")
+    .select("id, name, is_competitor, business_sector_id, recurring_updates, created_at")
     .eq("business_id", id)
     .order("name"),
   supabase
@@ -36,6 +36,8 @@ const users = usersRes.data ?? [];
 const usersLabel = users.length > 0
   ? users.map((u) => u.full_name || u.id.slice(0, 8)).join(", ")
   : "Nessun utente";
+
+const googleMapsApiKey = import.meta.env.GOOGLE_MAPS_API_KEY ?? "";
 ---
 
 <AdminLayout title={business.name}>
@@ -53,5 +55,6 @@ const usersLabel = users.length > 0
     sectors={sectorsRes.data ?? []}
     usersLabel={usersLabel}
     reviewCount={reviewCountRes.count ?? 0}
+    googleMapsApiKey={googleMapsApiKey}
   />
 </AdminLayout>

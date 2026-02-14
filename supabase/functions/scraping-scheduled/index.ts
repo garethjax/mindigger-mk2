@@ -44,23 +44,18 @@ Deno.serve(async (req) => {
     // - initial_scrape_done = true (recurring only)
     // - status is idle or completed (not already running)
     // - matching frequency
-    // - owned by active users (join through locations → businesses → profiles)
+    // - location has recurring_updates enabled
     const { data: configs, error: queryErr } = await db
       .from("scraping_configs")
       .select(`
         id, location_id, platform, platform_config,
         recurring_depth, frequency, bot_id,
-        locations!inner(
-          business_id,
-          businesses!inner(
-            id,
-            profiles!business_id(account_enabled, account_locked, active_subscription)
-          )
-        )
+        locations!inner(business_id, recurring_updates)
       `)
       .eq("initial_scrape_done", true)
       .in("status", ["idle", "completed"])
-      .eq("frequency", resolvedFrequency);
+      .eq("frequency", resolvedFrequency)
+      .eq("locations.recurring_updates", true);
 
     if (queryErr) throw queryErr;
     if (!configs || configs.length === 0) {
@@ -70,24 +65,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Filter for active users (at least one active user with subscription)
-    const activeConfigs = configs.filter((c) => {
-      const loc = c.locations as {
-        business_id: string;
-        businesses: {
-          id: string;
-          profiles: {
-            account_enabled: boolean;
-            account_locked: boolean;
-            active_subscription: boolean;
-          }[];
-        };
-      };
-      const profiles = loc.businesses.profiles ?? [];
-      return profiles.some(
-        (p) => p.account_enabled && !p.account_locked && p.active_subscription,
-      );
-    });
+    const activeConfigs = configs;
 
     for (const config of activeConfigs) {
       try {
