@@ -30,7 +30,7 @@ Analyze the review and extract the following information in valid JSON format.
 Rules:
 1. italian_categories: Select up to 5 most relevant categories from the list provided. Do not invent new categories.
 2. italian_topics: Generate up to 5 most relevant topics. Each italian_topic should have only one relation with one of categories from the list provided.
-3. For each italian_topic, provide a score from 1 to 5
+3. For each italian_topic, provide a satisfaction score from 1 to 5 (1 = strong dissatisfaction/problem, 5 = strong satisfaction/praise)
 4. If the review is not in Italian, you MUST provide the 'italian_translation' field.
 5. If the review title is not present, you MUST generate a title in Italian for the review.
 
