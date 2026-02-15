@@ -80,9 +80,10 @@ export default function ReviewList({ filters, businessId }: Props) {
     if (filters.dateTo) query = query.lte("review_date", filters.dateTo);
     if (!filterAllRatings) query = query.in("rating", ratings);
 
-    const { data, error } = await query;
+    const { data: rawData, error } = await query;
 
-    if (!error && data) {
+    if (!error && rawData) {
+      const data = rawData as unknown as Review[];
       setReviews(reset ? data : [...reviews, ...data]);
       setHasMore(data.length === PAGE_SIZE);
       if (reset) setPage(0);
