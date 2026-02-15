@@ -6,7 +6,7 @@ interface SectorListItem {
   id: string;
   name: string;
   platforms: string[] | null;
-  description: string | null;
+  description?: string | null;
   created_at: string;
   categories?: RelationCount[] | RelationCount | null;
   locations?: RelationCount[] | RelationCount | null;

@@ -1,9 +1,48 @@
 ---
 import SectorEditor from "@/components/admin/SectorEditor";
 import AdminLayout from "@/layouts/AdminLayout.astro";
+import { createSupabaseServer } from "@/lib/supabase";
 
 const sectorId = Astro.params.id ?? "";
 const isNew = sectorId === "new";
+const supabase = createSupabaseServer(Astro.cookies, Astro.request);
+
+let sector: {
+  id: string;
+  name: string;
+  description: string | null;
+  platforms: string[];
+  prompt_template: string | null;
+} | undefined;
+let categories: { id: string; name: string }[] = [];
+
+if (!isNew) {
+  const { data: sectorRes } = await supabase
+    .from("business_sectors")
+    .select("*")
+    .eq("id", sectorId)
+    .single();
+
+  if (!sectorRes) {
+    return Astro.redirect("/regia/sectors");
+  }
+
+  sector = {
+    id: sectorRes.id,
+    name: sectorRes.name ?? "",
+    description: sectorRes.description ?? null,
+    platforms: sectorRes.platforms ?? [],
+    prompt_template: sectorRes.prompt_template ?? null,
+  };
+
+  const { data: categoriesRes } = await supabase
+    .from("categories")
+    .select("id, name")
+    .eq("business_sector_id", sectorId)
+    .order("name");
+
+  categories = categoriesRes ?? [];
+}
 ---
 
 <AdminLayout title={isNew ? "Nuovo Settore" : "Modifica Settore"}>
@@ -19,7 +58,7 @@ const isNew = sectorId === "new";
   <SectorEditor
     client:load
     isNew={isNew}
-    sector={isNew ? undefined : { id: sectorId, name: "", description: null, platforms: [], prompt_template: null }}
-    categories={[]}
+    sector={sector}
+    categories={categories}
   />
 </AdminLayout>

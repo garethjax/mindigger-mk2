@@ -1,4 +1,5 @@
 import { useMemo, useState } from "preact/hooks";
+import { createSupabaseBrowser } from "@/lib/supabase";
 
 interface Sector {
   id: string;
@@ -46,11 +47,31 @@ const PLATFORM_OPTIONS = [
   { value: "booking", label: "Booking" },
 ] as const;
 
+const DEFAULT_PROMPT_TEMPLATE = `You are an expert text analyzer for reviews about {{sectorName}} sector.
+Analyze the review and extract the following information in valid JSON format.
+
+Rules:
+1. italian_categories: Select up to 5 most relevant categories from the list provided. Do not invent new categories.
+2. italian_topics: Generate up to 5 most relevant topics. Each italian_topic should have only one relation with one of categories from the list provided.
+3. For each italian_topic, provide a satisfaction score from 1 to 5 (1 = strong dissatisfaction/problem, 5 = strong satisfaction/praise)
+4. If the review is not in Italian, you MUST provide the 'italian_translation' field.
+5. If the review title is not present, you MUST generate a title in Italian for the review.
+
+Available categories: [{{categories}}]`;
+
 function buildLocalId(seed: string, index: number): string {
-  return `${seed}-${index}-${Math.random().toString(36).slice(2, 7)}`;
+  return `${seed}-${index}`;
+}
+
+function renderTemplate(template: string, sectorName: string, categoriesValue: string): string {
+  return template
+    .replaceAll("{{sectorName}}", sectorName)
+    .replaceAll("{{categories}}", categoriesValue);
 }
 
 export default function SectorEditor({ sector, categories = [], isNew, onSave }: Props) {
+  const supabase = createSupabaseBrowser();
+
   const initialCategories = useMemo<CategoryState[]>(
     () =>
       categories.map((c, index) => ({
@@ -67,8 +88,34 @@ export default function SectorEditor({ sector, categories = [], isNew, onSave }:
   const [categoryItems, setCategoryItems] = useState<CategoryState[]>(initialCategories);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [promptTemplate, setPromptTemplate] = useState(sector?.prompt_template ?? "");
+  const [nextLocalIndex, setNextLocalIndex] = useState(initialCategories.length);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  const cleanedCategories = useMemo(
+    () =>
+      categoryItems
+        .map((item) => ({ ...item, name: item.name.trim() }))
+        .filter((item) => item.name.length > 0),
+    [categoryItems],
+  );
+
+  const promptCategories = useMemo(
+    () => cleanedCategories.map((item) => `"${item.name.toUpperCase().replace(/\s+/g, "_")}"`).join(", "),
+    [cleanedCategories],
+  );
+
+  const activeTemplate = promptTemplate.trim() ? promptTemplate : DEFAULT_PROMPT_TEMPLATE;
+
+  const promptPreview = useMemo(
+    () =>
+      renderTemplate(
+        activeTemplate,
+        name.trim() || "Settore",
+        promptCategories || '"SENZA_COMMENTI", "ALTRO"',
+      ),
+    [activeTemplate, name, promptCategories],
+  );
 
   function togglePlatform(platform: string) {
     setSelectedPlatforms((prev) =>
@@ -87,16 +134,115 @@ export default function SectorEditor({ sector, categories = [], isNew, onSave }:
     setCategoryItems((prev) => [
       ...prev,
       {
-        localId: buildLocalId("new", prev.length),
+        localId: buildLocalId("new", nextLocalIndex),
         name: normalized,
       },
     ]);
+    setNextLocalIndex((prev) => prev + 1);
     setNewCategoryName("");
     setFeedback(null);
   }
 
   function removeCategory(localId: string) {
     setCategoryItems((prev) => prev.filter((c) => c.localId !== localId));
+  }
+
+  async function saveWithSupabase(payload: SectorEditorPayload): Promise<string> {
+    let savedSectorId = payload.sectorId;
+
+    if (isNew || !savedSectorId) {
+      const { data: createdSector, error: createError } = await supabase
+        .from("business_sectors")
+        .insert({
+          name: payload.name,
+          description: payload.description,
+          platforms: payload.platforms,
+          prompt_template: payload.prompt_template,
+        })
+        .select("id")
+        .single();
+
+      if (createError || !createdSector) {
+        throw new Error(createError?.message ?? "Errore nella creazione del settore");
+      }
+      savedSectorId = createdSector.id;
+    } else {
+      const { error: updateError } = await supabase
+        .from("business_sectors")
+        .update({
+          name: payload.name,
+          description: payload.description,
+          platforms: payload.platforms,
+          prompt_template: payload.prompt_template,
+        })
+        .eq("id", savedSectorId);
+
+      if (updateError) {
+        throw new Error(updateError.message);
+      }
+    }
+
+    const keptCategoryIds = new Set(payload.categories.map((item) => item.id).filter(Boolean) as string[]);
+    const removedCategories = categories.filter((item) => !keptCategoryIds.has(item.id));
+
+    if (removedCategories.length > 0) {
+      const blocked: string[] = [];
+      const removableIds: string[] = [];
+
+      for (const item of removedCategories) {
+        const { count, error: countError } = await supabase
+          .from("review_categories")
+          .select("category_id", { count: "exact", head: true })
+          .eq("category_id", item.id);
+
+        if (countError) {
+          throw new Error(countError.message);
+        }
+
+        if ((count ?? 0) > 0) {
+          blocked.push(`${item.name} (${count})`);
+        } else {
+          removableIds.push(item.id);
+        }
+      }
+
+      if (blocked.length > 0) {
+        throw new Error(`Impossibile rimuovere categorie in uso: ${blocked.join(", ")}`);
+      }
+
+      if (removableIds.length > 0) {
+        const { error: deleteError } = await supabase
+          .from("categories")
+          .delete()
+          .in("id", removableIds);
+
+        if (deleteError) {
+          throw new Error(deleteError.message);
+        }
+      }
+    }
+
+    const newCategoryRows = payload.categories.filter((item) => !item.id);
+    if (newCategoryRows.length > 0) {
+      const { error: categoryInsertError } = await supabase
+        .from("categories")
+        .insert(
+          newCategoryRows.map((item) => ({
+            name: item.name,
+            business_sector_id: savedSectorId,
+          })),
+        );
+
+      if (categoryInsertError) {
+        throw new Error(categoryInsertError.message);
+      }
+    }
+
+    if (!savedSectorId) {
+      throw new Error("ID settore non disponibile dopo il salvataggio.");
+    }
+
+    return savedSectorId;
   }
 
   async function handleSubmit(event: Event) {
@@ -106,14 +252,29 @@ export default function SectorEditor({ sector, categories = [], isNew, onSave }:
       return;
     }
 
+    if (cleanedCategories.length === 0) {
+      setFeedback({ type: "err", text: "Inserisci almeno una categoria." });
+      return;
+    }
+
+    const categoryNames = new Set<string>();
+    for (const item of cleanedCategories) {
+      const key = item.name.toLowerCase();
+      if (categoryNames.has(key)) {
+        setFeedback({ type: "err", text: "Le categorie devono avere nomi univoci." });
+        return;
+      }
+      categoryNames.add(key);
+    }
+
     const payload: SectorEditorPayload = {
       sectorId: sector?.id,
       name: name.trim(),
       description: description.trim() ? description.trim() : null,
       platforms: selectedPlatforms,
-      categories: categoryItems.map((item) => ({
+      categories: cleanedCategories.map((item) => ({
         id: item.id,
-        name: item.name.trim(),
+        name: item.name,
       })),
       prompt_template: promptTemplate.trim() ? promptTemplate.trim() : null,
     };
@@ -122,14 +283,22 @@ export default function SectorEditor({ sector, categories = [], isNew, onSave }:
     setFeedback(null);
 
     try {
+      let savedSectorId = payload.sectorId ?? "";
+
       if (onSave) {
         await onSave(payload);
       } else {
-        console.info("SectorEditor payload (UI shell):", payload);
+        savedSectorId = await saveWithSupabase(payload);
       }
-      setFeedback({ type: "ok", text: "Bozza settore pronta. Integrazione DB prevista nel task successivo." });
-    } catch {
-      setFeedback({ type: "err", text: "Errore durante il salvataggio della bozza." });
+
+      setFeedback({ type: "ok", text: "Settore salvato con successo." });
+
+      if (isNew && savedSectorId) {
+        window.location.href = `/regia/sectors/${savedSectorId}`;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Errore durante il salvataggio del settore.";
+      setFeedback({ type: "err", text: message });
     } finally {
       setSaving(false);
     }
@@ -137,12 +306,6 @@ export default function SectorEditor({ sector, categories = [], isNew, onSave }:
 
   return (
     <form onSubmit={handleSubmit} class="space-y-6">
-      {!isNew && (
-        <div class="rounded-lg border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800">
-          Modalita' UI shell: il caricamento/salvataggio DB verra' integrato nel task successivo.
-        </div>
-      )}
-
       {feedback && (
         <div
           class={`rounded-lg p-3 text-sm ${
@@ -197,11 +360,10 @@ export default function SectorEditor({ sector, categories = [], isNew, onSave }:
 
       <section class="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
         <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-500">Sezione 2 - Categorie</h2>
+        <p class="text-xs text-gray-500">Suggerite come default: "Senza Commenti" e "Altro".</p>
 
         <div class="space-y-2">
-          {categoryItems.length === 0 && (
-            <p class="text-sm text-gray-500">Nessuna categoria inserita.</p>
-          )}
+          {categoryItems.length === 0 && <p class="text-sm text-gray-500">Nessuna categoria inserita.</p>}
 
           {categoryItems.map((category) => (
             <div class="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
@@ -239,9 +401,16 @@ export default function SectorEditor({ sector, categories = [], isNew, onSave }:
         <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-500">Sezione 3 - Prompt AI</h2>
 
         <div>
-          <label class="mb-1 block text-sm font-medium text-gray-700">
-            Prompt AI personalizzato (opzionale)
-          </label>
+          <label class="mb-1 block text-sm font-medium text-gray-700">Prompt AI personalizzato (opzionale)</label>
+          <div class="mb-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPromptTemplate(DEFAULT_PROMPT_TEMPLATE)}
+              class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Carica default
+            </button>
+          </div>
           <textarea
             value={promptTemplate}
             onInput={(e) => setPromptTemplate((e.target as HTMLTextAreaElement).value)}
@@ -252,6 +421,11 @@ export default function SectorEditor({ sector, categories = [], isNew, onSave }:
             Variabili disponibili: {"{{sectorName}}"}, {"{{categories}}"}. Lascia vuoto per usare il
             prompt di sistema.
           </p>
+        </div>
+
+        <div>
+          <div class="mb-1 block text-sm font-medium text-gray-700">Preview prompt risultante</div>
+          <pre class="max-h-64 overflow-auto rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">{promptPreview}</pre>
         </div>
       </section>
 

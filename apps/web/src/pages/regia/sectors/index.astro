@@ -7,7 +7,7 @@ const supabase = createSupabaseServer(Astro.cookies, Astro.request);
 
 const { data: sectors } = await supabase
   .from("business_sectors")
-  .select("id, name, platforms, description, created_at, categories(count), locations(count)")
+  .select("id, name, platforms, created_at, categories(count), locations(count)")
   .order("name");
 ---
 
