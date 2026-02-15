@@ -65,6 +65,31 @@ Deno.serve(async (req) => {
         const savedOutputFileId = metadata.output_file_id as string | undefined;
         const offset = (metadata.processed_offset as number) ?? 0;
 
+        // Optimistic lock: skip if another poll invocation is already processing this batch.
+        // A lock older than 5 minutes is considered stale (crashed invocation).
+        const lockTime = metadata.processing_lock as string | undefined;
+        if (lockTime) {
+          const lockAge = Date.now() - new Date(lockTime).getTime();
+          if (lockAge < 5 * 60 * 1000) {
+            results.push({ batch_id: batch.id, status: "locked_by_other" });
+            continue;
+          }
+        }
+
+        // Claim lock atomically — use the current offset as a condition to detect races
+        const lockNow = new Date().toISOString();
+        const { data: lockResult } = await db
+          .from("ai_batches")
+          .update({ metadata: { ...metadata, processing_lock: lockNow } })
+          .eq("id", batch.id)
+          .eq("status", "in_progress")
+          .select("id");
+
+        if (!lockResult || lockResult.length === 0) {
+          results.push({ batch_id: batch.id, status: "lock_failed" });
+          continue;
+        }
+
         // If we already have output_file_id in metadata, skip OpenAI status check
         let outputFileId = savedOutputFileId;
 
@@ -125,7 +150,12 @@ Deno.serve(async (req) => {
         type ParsedLine = {
           reviewId: string;
           aiResult: Record<string, unknown>;
-          usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null;
+          usage: {
+            prompt_tokens: number;
+            completion_tokens: number;
+            total_tokens: number;
+            prompt_tokens_details?: { cached_tokens?: number };
+          } | null;
         };
         const parsed: ParsedLine[] = [];
         const failedIds: string[] = [];
@@ -218,7 +248,7 @@ Deno.serve(async (req) => {
         }[] = [];
         const allReviewCategories: { review_id: string; category_id: string }[] = [];
         const reviewCategorySeen = new Set<string>(); // dedup "reviewId:categoryId"
-        const usageAgg = new Map<string, { prompt_tokens: number; completion_tokens: number; total_tokens: number }>();
+        const usageAgg = new Map<string, { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens: number }>();
 
         // Collect all review update operations
         const updateOps: (() => Promise<void>)[] = [];
@@ -295,10 +325,11 @@ Deno.serve(async (req) => {
 
           // Aggregate token usage
           if (usage && review.business_id) {
-            const prev = usageAgg.get(review.business_id) ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+            const prev = usageAgg.get(review.business_id) ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cached_tokens: 0 };
             prev.prompt_tokens += usage.prompt_tokens ?? 0;
             prev.completion_tokens += usage.completion_tokens ?? 0;
             prev.total_tokens += usage.total_tokens ?? 0;
+            prev.cached_tokens += usage.prompt_tokens_details?.cached_tokens ?? 0;
             usageAgg.set(review.business_id, prev);
           }
 
@@ -332,8 +363,17 @@ Deno.serve(async (req) => {
         }
 
         // --- Phase 9: Flush aggregated token usage ---
+        // Extract model from first parsed line's response body, fallback to gpt-4.1
+        let batchModel = "gpt-4.1";
+        if (chunk.length > 0) {
+          try {
+            const firstObj = JSON.parse(chunk[0]);
+            batchModel = firstObj.response?.body?.model ?? "gpt-4.1";
+          } catch { /* keep default */ }
+        }
+
         for (const [businessId, usage] of usageAgg) {
-          await trackTokenUsage(db, businessId, batch.provider, "reviews", usage);
+          await trackTokenUsage(db, businessId, batch.provider, "reviews", usage, batchModel);
         }
 
         // --- Phase 10: Save progress ---
@@ -345,7 +385,7 @@ Deno.serve(async (req) => {
             .from("ai_batches")
             .update({
               status: "completed",
-              metadata: { ...metadata, processed_offset: newOffset, output_file_id: outputFileId },
+              metadata: { ...metadata, processed_offset: newOffset, output_file_id: outputFileId, processing_lock: null },
             })
             .eq("id", batch.id);
 
@@ -354,7 +394,7 @@ Deno.serve(async (req) => {
           await db
             .from("ai_batches")
             .update({
-              metadata: { ...metadata, processed_offset: newOffset, output_file_id: outputFileId },
+              metadata: { ...metadata, processed_offset: newOffset, output_file_id: outputFileId, processing_lock: null },
             })
             .eq("id", batch.id);
 
@@ -367,9 +407,11 @@ Deno.serve(async (req) => {
           });
         }
       } catch (innerErr) {
+        // Release lock and mark failed
+        const failMeta = (batch.metadata ?? {}) as Record<string, unknown>;
         await db
           .from("ai_batches")
-          .update({ status: "failed" })
+          .update({ status: "failed", metadata: { ...failMeta, processing_lock: null } })
           .eq("id", batch.id);
         results.push({
           batch_id: batch.id,
@@ -395,15 +437,17 @@ async function trackTokenUsage(
   businessId: string,
   provider: string,
   batchType: string,
-  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number },
+  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens: number },
+  model: string,
 ): Promise<void> {
   const today = new Date().toISOString().slice(0, 10);
 
   const { data: existing } = await db
     .from("token_usage")
-    .select("id, prompt_tokens, completion_tokens, total_tokens")
+    .select("id, prompt_tokens, completion_tokens, total_tokens, cached_tokens")
     .eq("business_id", businessId)
     .eq("provider", provider)
+    .eq("model", model)
     .eq("batch_type", batchType)
     .eq("date", today)
     .maybeSingle();
@@ -415,16 +459,19 @@ async function trackTokenUsage(
         prompt_tokens: existing.prompt_tokens + usage.prompt_tokens,
         completion_tokens: existing.completion_tokens + usage.completion_tokens,
         total_tokens: existing.total_tokens + usage.total_tokens,
+        cached_tokens: existing.cached_tokens + usage.cached_tokens,
       })
       .eq("id", existing.id);
   } else {
     await db.from("token_usage").insert({
       business_id: businessId,
       provider,
+      model,
       batch_type: batchType,
       prompt_tokens: usage.prompt_tokens,
       completion_tokens: usage.completion_tokens,
       total_tokens: usage.total_tokens,
+      cached_tokens: usage.cached_tokens,
       date: today,
     });
   }

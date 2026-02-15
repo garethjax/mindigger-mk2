@@ -198,18 +198,25 @@ Deno.serve(async (req) => {
 
     if (emptyReviews.length > 0) {
       const emptyIds = emptyReviews.map((r) => r.id);
-      await db
-        .from("reviews")
-        .update({
-          status: "completed",
-          text: "Nessun commento.",
-          ai_result: {
-            italian_topics: [],
-            sentiment: 3,
-            language: "it",
-          },
-        })
-        .in("id", emptyIds);
+      // Chunk to avoid PostgREST URL length limits with large .in() lists
+      for (let i = 0; i < emptyIds.length; i += 100) {
+        const chunk = emptyIds.slice(i, i + 100);
+        const { error: emptyErr } = await db
+          .from("reviews")
+          .update({
+            status: "completed",
+            text: "Nessun commento.",
+            ai_result: {
+              italian_topics: [],
+              sentiment: 3,
+              language: "it",
+            },
+          })
+          .in("id", chunk);
+        if (emptyErr) {
+          console.error(`Empty review update chunk ${i} failed:`, emptyErr.message);
+        }
+      }
     }
 
     if (validReviews.length === 0) {
@@ -428,7 +435,12 @@ Deno.serve(async (req) => {
 
             // Track token usage
             if (usage) {
-              await trackTokenUsage(db, review.business_id, aiConfig.provider, "reviews", usage);
+              await trackTokenUsage(db, review.business_id, aiConfig.provider, "reviews", {
+                prompt_tokens: usage.prompt_tokens,
+                completion_tokens: usage.completion_tokens,
+                total_tokens: usage.total_tokens,
+                cached_tokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+              }, model);
             }
 
             totalSubmitted++;
@@ -502,22 +514,23 @@ async function processTopics(
   }
 }
 
-/** Track token usage — upsert per business/provider/date/batch_type. */
+/** Track token usage — upsert per business/provider/model/date/batch_type. */
 async function trackTokenUsage(
   db: ReturnType<typeof createAdminClient>,
   businessId: string,
   provider: string,
   batchType: string,
-  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number },
+  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens: number },
+  model: string,
 ): Promise<void> {
   const today = new Date().toISOString().slice(0, 10);
 
-  // Try to find existing record
   const { data: existing } = await db
     .from("token_usage")
-    .select("id, prompt_tokens, completion_tokens, total_tokens")
+    .select("id, prompt_tokens, completion_tokens, total_tokens, cached_tokens")
     .eq("business_id", businessId)
     .eq("provider", provider)
+    .eq("model", model)
     .eq("batch_type", batchType)
     .eq("date", today)
     .maybeSingle();
@@ -529,16 +542,19 @@ async function trackTokenUsage(
         prompt_tokens: existing.prompt_tokens + usage.prompt_tokens,
         completion_tokens: existing.completion_tokens + usage.completion_tokens,
         total_tokens: existing.total_tokens + usage.total_tokens,
+        cached_tokens: existing.cached_tokens + usage.cached_tokens,
       })
       .eq("id", existing.id);
   } else {
     await db.from("token_usage").insert({
       business_id: businessId,
       provider,
+      model,
       batch_type: batchType,
       prompt_tokens: usage.prompt_tokens,
       completion_tokens: usage.completion_tokens,
       total_tokens: usage.total_tokens,
+      cached_tokens: usage.cached_tokens,
       date: today,
     });
   }
