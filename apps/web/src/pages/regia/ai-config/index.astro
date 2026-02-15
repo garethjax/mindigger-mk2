@@ -5,7 +5,7 @@ import { createSupabaseServer } from "@/lib/supabase";
 
 const supabase = createSupabaseServer(Astro.cookies, Astro.request);
 
-const [configsRes, tokenRes, batchesRes, pricingRes] = await Promise.all([
+const [configsRes, tokenRes, batchesRes, pricingRes, balanceRes] = await Promise.all([
   supabase.from("ai_configs").select("*").order("created_at"),
   supabase
     .from("token_usage")
@@ -21,6 +21,12 @@ const [configsRes, tokenRes, batchesRes, pricingRes] = await Promise.all([
     .from("ai_pricing")
     .select("*")
     .eq("is_active", true),
+  supabase
+    .from("ai_credit_balance")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single(),
 ]);
 ---
 
@@ -32,5 +38,6 @@ const [configsRes, tokenRes, batchesRes, pricingRes] = await Promise.all([
     tokenUsage={(tokenRes.data ?? []) as any}
     batches={batchesRes.data ?? []}
     pricing={(pricingRes.data ?? []) as any}
+    creditBalance={balanceRes.data as any}
   />
 </AdminLayout>

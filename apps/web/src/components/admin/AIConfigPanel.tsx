@@ -44,11 +44,18 @@ interface PricingRow {
   output_price: number;
 }
 
+interface CreditBalance {
+  initial_amount: number;
+  reference_date: string;
+  notes: string | null;
+}
+
 interface Props {
   configs: AIConfig[];
   tokenUsage: TokenUsageRow[];
   batches: Batch[];
   pricing: PricingRow[];
+  creditBalance: CreditBalance | null;
 }
 
 const BATCH_STATUS_COLORS: Record<string, string> = {
@@ -81,7 +88,7 @@ function computeCost(
 }
 
 
-export default function AIConfigPanel({ configs, tokenUsage, batches, pricing }: Props) {
+export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, creditBalance }: Props) {
   const [tab, setTab] = useState<"config" | "tokens" | "batches" | "costs">("config");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editModel, setEditModel] = useState("");
@@ -221,6 +228,16 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing }:
     (sum, t) => sum + computeCost(t, pricing),
     0,
   );
+
+  // Credit balance: remaining = initial - costs after reference date
+  const costAfterRef = creditBalance
+    ? tokenUsage
+        .filter((t) => t.date > creditBalance.reference_date)
+        .reduce((sum, t) => sum + computeCost(t, pricing), 0)
+    : 0;
+  const remainingCredit = creditBalance
+    ? creditBalance.initial_amount - costAfterRef
+    : null;
 
   // Costs by business
   const costsByBusiness = new Map<
@@ -482,12 +499,26 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing }:
       {/* Costs tab */}
       {tab === "costs" && (
         <div class="space-y-4">
-          {/* Total cost card */}
-          <div class="rounded-lg border border-gray-200 bg-white p-4">
-            <div class="text-sm text-gray-500">Costo stimato totale (batch mode, -50%)</div>
-            <div class="text-2xl font-bold text-green-700">${totalCost.toFixed(2)}</div>
-            <div class="mt-1 text-xs text-gray-400">
-              Basato su {tokenUsage.length} record
+          {/* Balance + Total cost cards */}
+          <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {remainingCredit !== null && creditBalance && (
+              <div class="rounded-lg border border-blue-200 bg-blue-50/50 p-4">
+                <div class="text-sm text-gray-500">Credito residuo stimato</div>
+                <div class="text-2xl font-bold text-blue-700">${remainingCredit.toFixed(2)}</div>
+                <div class="mt-1 text-xs text-gray-400">
+                  Checkpoint: ${creditBalance.initial_amount.toFixed(2)} al {creditBalance.reference_date}
+                  {costAfterRef > 0 && (
+                    <span> &mdash; spesi ${costAfterRef.toFixed(2)} da allora</span>
+                  )}
+                </div>
+              </div>
+            )}
+            <div class="rounded-lg border border-gray-200 bg-white p-4">
+              <div class="text-sm text-gray-500">Costo stimato totale (batch mode, -50%)</div>
+              <div class="text-2xl font-bold text-green-700">${totalCost.toFixed(2)}</div>
+              <div class="mt-1 text-xs text-gray-400">
+                Basato su {tokenUsage.length} record
+              </div>
             </div>
           </div>
 
