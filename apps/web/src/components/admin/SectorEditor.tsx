@@ -305,7 +305,7 @@ export default function SectorEditor({ sector, categories = [], isNew, onSave }:
   }
 
   return (
-    <form onSubmit={handleSubmit} class="space-y-6">
+    <form onSubmit={handleSubmit} class="min-w-0 space-y-6">
       {feedback && (
         <div
           class={`rounded-lg p-3 text-sm ${
@@ -366,12 +366,12 @@ export default function SectorEditor({ sector, categories = [], isNew, onSave }:
           {categoryItems.length === 0 && <p class="text-sm text-gray-500">Nessuna categoria inserita.</p>}
 
           {categoryItems.map((category) => (
-            <div class="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-              <span class="text-sm text-gray-800">{category.name}</span>
+            <div class="flex items-center justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+              <span class="min-w-0 break-words text-sm text-gray-800">{category.name}</span>
               <button
                 type="button"
                 onClick={() => removeCategory(category.localId)}
-                class="text-xs font-medium text-red-600 hover:text-red-800"
+                class="shrink-0 text-xs font-medium text-red-600 hover:text-red-800"
               >
                 Rimuovi
               </button>
@@ -425,7 +425,7 @@ export default function SectorEditor({ sector, categories = [], isNew, onSave }:
 
         <div>
           <div class="mb-1 block text-sm font-medium text-gray-700">Preview prompt risultante</div>
-          <pre class="max-h-64 overflow-auto rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">{promptPreview}</pre>
+          <pre class="max-h-64 max-w-full overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">{promptPreview}</pre>
         </div>
       </section>
 
