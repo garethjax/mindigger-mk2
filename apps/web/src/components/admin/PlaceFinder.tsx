@@ -130,8 +130,8 @@ export default function PlaceFinder({ googleMapsApiKey, onPlaceSelected }: Props
     try {
       const { data, error } = await supabase.functions.invoke("brave-search", {
         body: {
-          query: `"${placeName}" inurl:tripadvisor.com/Hotel_Review-`,
-          filter_regex: "https?://(www\\.)?tripadvisor\\.com/",
+          query: `${placeName} tripadvisor`,
+          filter_regex: "https?://(www\\.)?tripadvisor\\.(com|it)/",
         },
       });
       if (!error && data?.results) {
@@ -150,8 +150,8 @@ export default function PlaceFinder({ googleMapsApiKey, onPlaceSelected }: Props
     try {
       const { data, error } = await supabase.functions.invoke("brave-search", {
         body: {
-          query: `"${placeName}" inurl:https://www.booking.com/hotel/it/`,
-          filter_regex: "https://www\\.booking\\.com/.*(/it/|\\.it\\.html)",
+          query: `${placeName} booking.com`,
+          filter_regex: "https?://(www\\.)?booking\\.com/",
         },
       });
       if (!error && data?.results) {

@@ -22,6 +22,8 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   failed: { label: "Errore", color: "bg-red-100 text-red-700" },
 };
 
+const hasAnalyzing = swotList?.some((s) => s.status === "analyzing" || s.status === "pending") ?? false;
+
 const PERIOD_LABELS: Record<string, string> = {
   "3": "3 mesi",
   "6": "6 mesi",
@@ -36,12 +38,22 @@ const PERIOD_LABELS: Record<string, string> = {
 <DashboardLayout title="SWOT">
   <div class="mb-6 flex items-center justify-between">
     <h1 class="text-2xl font-bold">Analisi SWOT</h1>
-    <a
-      href="/swot/create"
-      class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-    >
-      Nuova Analisi
-    </a>
+    <div class="flex gap-2">
+      {hasAnalyzing && (
+        <button
+          id="poll-btn"
+          class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
+        >
+          Controlla Stato
+        </button>
+      )}
+      <a
+        href="/swot/create"
+        class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+      >
+        Nuova Analisi
+      </a>
+    </div>
   </div>
 
   {swotList && swotList.length > 0 ? (
@@ -89,5 +101,21 @@ const PERIOD_LABELS: Record<string, string> = {
       <p class="text-lg font-medium">Nessuna analisi SWOT</p>
       <p class="mt-1 text-sm">Crea la tua prima analisi SWOT cliccando il pulsante sopra.</p>
     </div>
+  )}
+
+  {hasAnalyzing && (
+    <script>
+      import { createSupabaseBrowser } from "@/lib/supabase";
+      const btn = document.getElementById("poll-btn");
+      btn?.addEventListener("click", async () => {
+        btn.textContent = "Controllo...";
+        btn.setAttribute("disabled", "true");
+        try {
+          const supabase = createSupabaseBrowser();
+          await supabase.functions.invoke("swot-poll", { body: {} });
+        } catch {}
+        window.location.reload();
+      });
+    </script>
   )}
 </DashboardLayout>
