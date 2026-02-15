@@ -19,10 +19,14 @@ const CLAIM_CHUNK_SIZE = 500;
 // Inline provider logic to avoid cross-package import issues in Deno Edge Functions
 const OPENAI_API = "https://api.openai.com/v1";
 
-function buildSystemPrompt(sectorName: string, categoryNames: string[]): string {
-  const categoryList = categoryNames
+function formatCategoryList(categoryNames: string[]): string {
+  return categoryNames
     .map((c) => `"${c.toUpperCase().replace(/ /g, "_")}"`)
     .join(", ");
+}
+
+function buildSystemPrompt(sectorName: string, categoryNames: string[]): string {
+  const categoryList = formatCategoryList(categoryNames);
 
   return `You are an expert text analyzer for reviews about ${sectorName} sector.
 Analyze the review and extract the following information in valid JSON format.
@@ -35,6 +39,13 @@ Rules:
 5. If the review title is not present, you MUST generate a title in Italian for the review.
 
 Available categories: [${categoryList}]`;
+}
+
+function buildPromptFromTemplate(template: string, sectorName: string, categoryNames: string[]): string {
+  const categoryList = formatCategoryList(categoryNames);
+  return template
+    .replaceAll("{{sectorName}}", sectorName)
+    .replaceAll("{{categories}}", categoryList);
 }
 
 const REVIEW_SCHEMA = {
@@ -169,7 +180,7 @@ Deno.serve(async (req) => {
         id, title, text, location_id, business_id,
         locations!inner(
           business_sector_id,
-          business_sectors:business_sector_id(id, name)
+          business_sectors:business_sector_id(id, name, prompt_template)
         )
       `)
       .or(`status.eq.pending,and(status.eq.analyzing,batched_at.lt.${staleThreshold})`);
@@ -232,19 +243,20 @@ Deno.serve(async (req) => {
     // Group by business_sector
     const bySector = new Map<
       string,
-      { sectorName: string; reviews: typeof validReviews }
+      { sectorName: string; promptTemplate: string | null; reviews: typeof validReviews }
     >();
 
     for (const review of validReviews) {
       const loc = review.locations as {
         business_sector_id: string;
-        business_sectors: { id: string; name: string };
+        business_sectors: { id: string; name: string; prompt_template: string | null };
       };
       const sectorId = loc.business_sector_id;
       const sectorName = loc.business_sectors.name;
+      const promptTemplate = loc.business_sectors.prompt_template;
 
       if (!bySector.has(sectorId)) {
-        bySector.set(sectorId, { sectorName, reviews: [] });
+        bySector.set(sectorId, { sectorName, promptTemplate, reviews: [] });
       }
       bySector.get(sectorId)!.reviews.push(review);
     }
@@ -273,7 +285,10 @@ Deno.serve(async (req) => {
 
     for (const [sectorId, group] of bySector) {
       const catNames = categoriesBySector.get(sectorId) ?? [];
-      const systemPrompt = buildSystemPrompt(group.sectorName, catNames);
+      const customTemplate = group.promptTemplate?.trim() || null;
+      const systemPrompt = customTemplate
+        ? buildPromptFromTemplate(customTemplate, group.sectorName, catNames)
+        : buildSystemPrompt(group.sectorName, catNames);
 
       if (mode === "batch" && aiConfig.provider === "openai") {
         // Build JSONL
