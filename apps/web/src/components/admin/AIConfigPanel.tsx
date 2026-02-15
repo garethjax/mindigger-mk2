@@ -96,6 +96,7 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [batchActionLoading, setBatchActionLoading] = useState<string | null>(null);
+  const [batchPollLoading, setBatchPollLoading] = useState(false);
   const [batchRows, setBatchRows] = useState<Batch[]>(batches);
 
   const supabase = createSupabaseBrowser();
@@ -205,6 +206,53 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
       return { ...row, status: nextStatus ?? row.status, updated_at: now };
     }));
     setBatchActionLoading(null);
+  }
+
+  async function runBatchPoll() {
+    setBatchPollLoading(true);
+    setMessage(null);
+
+    const pollNames = ["analysis-poll", "swot-poll"] as const;
+    let totalPolledResults = 0;
+
+    try {
+      for (const fnName of pollNames) {
+        const { data, error } = await supabase.functions.invoke(fnName, { body: {} });
+        if (error) {
+          let detail = error.message;
+          const context = (error as { context?: Response }).context;
+          if (context) {
+            const bodyText = await context.text().catch(() => "");
+            detail = `HTTP ${context.status}${bodyText ? ` - ${bodyText}` : ""}`;
+          }
+          throw new Error(`${fnName}: ${detail}`);
+        }
+
+        const results = (data as { results?: unknown[] } | null)?.results ?? [];
+        totalPolledResults += results.length;
+      }
+
+      const { data: refreshedBatches, error: refreshErr } = await supabase
+        .from("ai_batches")
+        .select("id, external_batch_id, provider, batch_type, status, created_at, updated_at")
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (refreshErr) {
+        throw new Error(refreshErr.message);
+      }
+
+      setBatchRows(refreshedBatches ?? []);
+      setMessage({
+        type: "ok",
+        text: `Controllo status completato: ${totalPolledResults} batch verificati.`,
+      });
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "Errore durante il controllo status batch.";
+      setMessage({ type: "err", text: detail });
+    } finally {
+      setBatchPollLoading(false);
+    }
   }
 
   // Token usage aggregation
@@ -637,6 +685,16 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
       {/* Batches tab */}
       {tab === "batches" && (
         <div class="space-y-3">
+          <div class="flex justify-end">
+            <button
+              type="button"
+              disabled={batchPollLoading}
+              onClick={runBatchPoll}
+              class="rounded border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              {batchPollLoading ? "Controllo..." : "Controlla status"}
+            </button>
+          </div>
           <div class="overflow-hidden rounded-lg border border-gray-200 bg-white">
           <table class="min-w-full divide-y divide-gray-200">
             <thead class="bg-gray-50">

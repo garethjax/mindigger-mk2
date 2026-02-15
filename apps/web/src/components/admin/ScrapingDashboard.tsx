@@ -31,6 +31,8 @@ interface Props {
   profileMap: Record<string, string>;
 }
 
+type RowAction = "scraping" | "analysis";
+
 const STATUS_CONFIG: Record<string, { label: string; color: string; sortOrder: number }> = {
   elaborating: { label: "In corso", color: "bg-blue-100 text-blue-700", sortOrder: 0 },
   checking: { label: "Verifica", color: "bg-yellow-100 text-yellow-700", sortOrder: 1 },
@@ -48,7 +50,8 @@ const PLATFORM_LABELS: Record<string, string> = {
 
 export default function ScrapingDashboard({ configs, profileMap }: Props) {
   const [filter, setFilter] = useState<"all" | "active" | "failed" | "idle">("all");
-  const [triggerLoading, setTriggerLoading] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [rowActionByConfig, setRowActionByConfig] = useState<Record<string, RowAction>>({});
   const [pollLoading, setPollLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [botsterCredits, setBotsterCredits] = useState<number | null>(null);
@@ -82,19 +85,78 @@ export default function ScrapingDashboard({ configs, profileMap }: Props) {
   const failedCount = configs.filter((c) => c.status === "failed").length;
 
   async function triggerScraping(locationId: string, platform: string) {
-    setTriggerLoading(`${locationId}:${platform}`);
-    setMessage(null);
-
     const { error } = await supabase.functions.invoke("scraping-trigger", {
       body: { location_id: locationId, platform },
     });
 
     if (error) {
-      setMessage({ type: "err", text: error.message });
+      let detail = error.message;
+      const context = (error as { context?: Response }).context;
+      if (context) {
+        const bodyText = await context.text().catch(() => "");
+        detail = `HTTP ${context.status}${bodyText ? ` - ${bodyText}` : ""}`;
+      }
+      setMessage({ type: "err", text: `Scraping trigger: ${detail}` });
     } else {
-      setMessage({ type: "ok", text: `Scraping avviato! Ricarica per aggiornare lo stato.` });
+      setMessage({ type: "ok", text: `Scraping avviato per ${PLATFORM_LABELS[platform] ?? platform}.` });
     }
-    setTriggerLoading(null);
+  }
+
+  async function processLocationReviews(locationId: string, locationName: string) {
+    const { data, error } = await supabase.functions.invoke("analysis-submit", {
+      body: { location_id: locationId },
+    });
+
+    if (error) {
+      let detail = error.message;
+      const context = (error as { context?: Response }).context;
+      if (context) {
+        const bodyText = await context.text().catch(() => "");
+        detail = `HTTP ${context.status}${bodyText ? ` - ${bodyText}` : ""}`;
+      }
+      setMessage({ type: "err", text: `Processa recensioni (${locationName}): ${detail}` });
+      return;
+    }
+
+    const payload = data as { submitted?: number; batches?: string[]; message?: string; active_batches?: number };
+    if (payload?.message?.toLowerCase().includes("already in progress")) {
+      setMessage({
+        type: "ok",
+        text: `Processa recensioni (${locationName}): già in corso (${payload.active_batches ?? 1} batch attivi).`,
+      });
+      return;
+    }
+
+    const submitted = Number(payload?.submitted ?? 0);
+    const batches = (payload?.batches ?? []).length;
+    if (submitted === 0) {
+      setMessage({ type: "ok", text: `Processa recensioni (${locationName}): nessuna review pending da inviare.` });
+    } else {
+      setMessage({
+        type: "ok",
+        text: `Processa recensioni (${locationName}): ${submitted} review inviate, ${batches} batch creati.`,
+      });
+    }
+  }
+
+  async function runRowAction(cfg: ScrapingConfig) {
+    const loc = cfg.locations;
+    if (!loc) return;
+
+    const selectedAction = rowActionByConfig[cfg.id] ?? "scraping";
+    const key = `${cfg.id}:${selectedAction}`;
+    setActionLoading(key);
+    setMessage(null);
+
+    try {
+      if (selectedAction === "analysis") {
+        await processLocationReviews(loc.id, loc.name);
+      } else {
+        await triggerScraping(loc.id, cfg.platform);
+      }
+    } finally {
+      setActionLoading(null);
+    }
   }
 
   async function pollScrapingStatus() {
@@ -197,8 +259,11 @@ export default function ScrapingDashboard({ configs, profileMap }: Props) {
               const st = STATUS_CONFIG[cfg.status] ?? STATUS_CONFIG.idle;
               const loc = cfg.locations;
               const biz = loc?.businesses;
-              const key = `${loc?.id}:${cfg.platform}`;
-              const isLoading = triggerLoading === key;
+              const selectedAction = rowActionByConfig[cfg.id] ?? "scraping";
+              const key = `${cfg.id}:${selectedAction}`;
+              const isLoading = actionLoading === key;
+              const isScrapingBlocked = cfg.status === "elaborating" || cfg.status === "checking";
+              const isActionBlocked = selectedAction === "scraping" && isScrapingBlocked;
               const depthLabel = cfg.initial_scrape_done
                 ? `${cfg.recurring_depth} (rec)`
                 : `${cfg.initial_depth} (init)`;
@@ -245,14 +310,30 @@ export default function ScrapingDashboard({ configs, profileMap }: Props) {
                   </td>
                   <td class="px-4 py-3 text-right">
                     {loc && (
-                      <button
-                        type="button"
-                        disabled={isLoading || cfg.status === "elaborating" || cfg.status === "checking"}
-                        onClick={() => triggerScraping(loc.id, cfg.platform)}
-                        class="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                      >
-                        {isLoading ? "..." : "Avvia Scraping rapido"}
-                      </button>
+                      <div class="inline-flex items-center gap-2">
+                        <select
+                          value={selectedAction}
+                          onChange={(e) =>
+                            setRowActionByConfig((prev) => ({
+                              ...prev,
+                              [cfg.id]: (e.target as HTMLSelectElement).value as RowAction,
+                            }))
+                          }
+                          disabled={isLoading}
+                          class="rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none"
+                        >
+                          <option value="scraping">Avvia scraping rapido</option>
+                          <option value="analysis">Processa recensioni</option>
+                        </select>
+                        <button
+                          type="button"
+                          disabled={isLoading || isActionBlocked}
+                          onClick={() => void runRowAction(cfg)}
+                          class="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                        >
+                          {isLoading ? "..." : "Esegui"}
+                        </button>
+                      </div>
                     )}
                   </td>
                 </tr>
