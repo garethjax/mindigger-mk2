@@ -1,0 +1,25 @@
+---
+import SectorEditor from "@/components/admin/SectorEditor";
+import AdminLayout from "@/layouts/AdminLayout.astro";
+
+const sectorId = Astro.params.id ?? "";
+const isNew = sectorId === "new";
+---
+
+<AdminLayout title={isNew ? "Nuovo Settore" : "Modifica Settore"}>
+  <div class="mb-6 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <a href="/regia/sectors" class="text-gray-400 hover:text-gray-600">&larr;</a>
+      <h1 class="text-2xl font-bold">
+        {isNew ? "Nuovo Settore" : "Modifica Settore"}
+      </h1>
+    </div>
+  </div>
+
+  <SectorEditor
+    client:load
+    isNew={isNew}
+    sector={isNew ? undefined : { id: sectorId, name: "", description: null, platforms: [], prompt_template: null }}
+    categories={[]}
+  />
+</AdminLayout>
