@@ -1,4 +1,4 @@
-import { useState } from "preact/hooks";
+import { useState, useEffect } from "preact/hooks";
 import { createSupabaseBrowser } from "@/lib/supabase";
 
 interface ScrapingConfig {
@@ -51,8 +51,17 @@ export default function ScrapingDashboard({ configs, profileMap }: Props) {
   const [triggerLoading, setTriggerLoading] = useState<string | null>(null);
   const [pollLoading, setPollLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [botsterCredits, setBotsterCredits] = useState<number | null>(null);
 
   const supabase = createSupabaseBrowser();
+
+  useEffect(() => {
+    supabase.functions.invoke("botster-credits").then(({ data, error }) => {
+      if (!error && data?.credits != null) {
+        setBotsterCredits(Number(data.credits));
+      }
+    });
+  }, []);
 
   const filtered = configs
     .filter((c) => {
@@ -151,6 +160,13 @@ export default function ScrapingDashboard({ configs, profileMap }: Props) {
         </button>
       )}
       </div>
+
+      {botsterCredits !== null && (
+        <div class="rounded-lg border border-blue-200 bg-blue-50/50 p-4">
+          <div class="text-sm text-gray-500">Crediti Botster disponibili</div>
+          <div class="text-2xl font-bold text-blue-700">{botsterCredits.toLocaleString("it-IT")}</div>
+        </div>
+      )}
 
       {message && (
         <div
