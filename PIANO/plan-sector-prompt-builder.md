@@ -54,8 +54,8 @@ Nessuna tabella nuova. `business_sectors` e `categories` esistono gia' con RLS a
 ### Pagina: `/regia/sectors` (nuova)
 
 Lista settori con:
-- Nome, piattaforme abilitate, numero categorie, numero business associati
-- Azioni: Modifica, (Elimina solo se nessun business associato)
+- Nome, piattaforme abilitate, numero categorie, numero location associate
+- Azioni: Modifica (`Elimina settore` deferred post-v1)
 - Bottone "Nuovo Settore"
 
 ### Componente: `SectorEditor.tsx` (nuovo)
@@ -85,22 +85,24 @@ Form di creazione/modifica settore con sezioni:
 ## Task breakdown
 
 ### Task 1 — Migration DB (Claude)
-- File: `supabase/migrations/010_sector_prompt_template.sql`
+- File: `supabase/migrations/012_sector_prompt_template.sql` (010 e 011 gia' occupati da cost_tracking e credit_balance)
 - ALTER TABLE `business_sectors` ADD COLUMN `description TEXT`, `prompt_template TEXT`
 - Nessun seed: i 6 settori esistenti restano con `prompt_template = NULL` (usano il default)
 
 ### Task 2 — Pagina Astro + componente lista settori (Codex-friendly)
 - File: `apps/web/src/pages/regia/sectors/index.astro`
 - Componente: `apps/web/src/components/admin/SectorList.tsx`
-- Query: `business_sectors` con count categorie e count business
+- **Navigazione:** Aggiungere `{ href: "/regia/sectors", label: "Settori" }` in `navItems` dentro `AdminLayout.astro` (riga 11)
+- Query: `business_sectors` con `categories(count)` + `locations(count)` (conta location, non business distinti)
 - Puro UI read-only + link a editor
 - **Codex-friendly:** componente isolato, nessuna dipendenza da ambiente live
 
-### Task 3 — SectorEditor con CRUD categorie (Codex-friendly per UI, Claude per integrazione)
+### Task 3 — SectorEditor UI shell (Codex-friendly, nessuna chiamata DB)
 - File: `apps/web/src/components/admin/SectorEditor.tsx`
-- Sezioni 1-2 (dati base + categorie)
-- CRUD via Supabase client: insert/update `business_sectors`, insert/delete `categories`
-- **Codex-friendly per la parte UI/form**, Claude per test integrazione DB
+- Sezioni 1-2 (dati base + categorie) + sezione 3 (textarea prompt)
+- **Solo UI/form con stato locale.** Nessuna chiamata Supabase. Usa callback `onSave(data)`.
+- Claude integrera' le chiamate DB in Task 4 (integrazione)
+- **Codex-friendly:** componente puro, testabile in isolamento
 
 ### Task 4 — Prompt builder UI (Claude)
 - Sezione 3 del SectorEditor: textarea template + preview merge
@@ -124,7 +126,7 @@ Form di creazione/modifica settore con sezioni:
 
 ## Spec per Codex — Task 2: SectorList
 
-**Branch:** `feat/sector-builder`
+**Branch:** `codex/sector-prompt-builder`
 
 **File da creare:**
 - `apps/web/src/pages/regia/sectors/index.astro`
@@ -132,21 +134,23 @@ Form di creazione/modifica settore con sezioni:
 
 **Layout:** Seguire pattern identico a `/regia/businesses` (vedi `apps/web/src/pages/regia/businesses/index.astro`)
 
+**Navigazione:** Aggiungere `{ href: "/regia/sectors", label: "Settori" }` nell'array `navItems` in `apps/web/src/layouts/AdminLayout.astro` (riga 11), dopo "Aziende".
+
 **Query Supabase:**
 ```typescript
 const { data: sectors } = await supabase
   .from("business_sectors")
-  .select("id, name, platforms, description, created_at, categories(count)")
+  .select("id, name, platforms, description, created_at, categories(count), locations(count)")
   .order("name");
 ```
 
+`locations(count)` conta le location associate al settore (non i business distinti). Una location = un punto vendita/sede. E' il dato rilevante per capire se il settore e' in uso.
+
 **UI:**
-- Tabella con colonne: Nome, Piattaforme (badge per ognuna), N. Categorie, Azioni
+- Tabella con colonne: Nome, Piattaforme (badge per ognuna), N. Categorie, N. Location, Azioni
 - Ogni riga ha link a `/regia/sectors/[id]` (pagina editor, Task 3)
 - Bottone "Nuovo Settore" in alto a destra
 - Stile Tailwind coerente con le altre pagine Regia
-
-**Navigazione:** Aggiungere link "Settori" nel menu Regia (vedi `apps/web/src/components/admin/` per il pattern nav)
 
 ---
 
@@ -196,7 +200,8 @@ Claude integrera' le chiamate DB in fase di integrazione (Task 4-5).
 
 ## Rischi e note
 
-- **Categorie orfane:** eliminare una categoria che ha `review_categories` associate richiede conferma + cascade o soft-delete. Per v1: impedire eliminazione se ci sono review_categories collegate.
+- **CASCADE su categorie:** a schema attuale, `categories` ha `ON DELETE CASCADE` verso `business_sectors`, e `review_categories` ha FK verso `categories`. Cancellare una categoria fa sparire le righe in `review_categories`. **Mitigazione v1:** controllo applicativo nell'editor — impedire eliminazione categoria se ha review_categories collegate (query count prima di delete). Mostrare warning "X review usano questa categoria".
+- **CASCADE su settori:** cancellare un settore fa cascade su `categories` (e quindi `review_categories`) e su `locations` (`business_sector_id ON DELETE CASCADE`). **Decisione v1:** nessuna eliminazione settore da UI. **Deferred post-v1:** valutare delete protetta con guard `locations(count) == 0`.
 - **Prompt injection:** il template viene usato come system prompt OpenAI. Non e' un rischio diretto (solo admin scrive), ma validare che non contenga placeholders non supportati.
 - **Retrocompatibilita':** settori esistenti con `prompt_template = NULL` usano il default. Zero breaking change.
 - **Costo re-analisi:** cambiare il prompt di un settore non ri-analizza automaticamente le review esistenti. Serve azione esplicita dall'admin (gia' disponibile in AI Config > batch admin).

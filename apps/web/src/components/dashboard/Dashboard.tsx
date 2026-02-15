@@ -102,9 +102,10 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
     if (filters.dateFrom) query = query.gte("review_date", filters.dateFrom);
     if (filters.dateTo) query = query.lte("review_date", filters.dateTo);
 
-    const { data, error } = await query;
+    const { data: rawData, error } = await query;
 
-    if (error || !data) return;
+    if (error || !rawData) return;
+    const data = rawData as unknown as { rating: number | null }[];
 
     const total = data.length;
     const sum = data.reduce((acc, r) => acc + (r.rating ?? 0), 0);
