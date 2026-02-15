@@ -174,7 +174,7 @@ export default function ReviewDistributionChart({
             const left = Math.floor(u.cursor.left ?? 0);
             const top = Math.floor(u.cursor.top ?? 0);
             tooltipEl.style.left = `${left + 12}px`;
-            tooltipEl.style.top = `${top + 12}px`;
+            tooltipEl.style.top = `${top - 25}px`;
             tooltipEl.classList.remove("hidden");
           },
         ],

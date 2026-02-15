@@ -27,10 +27,10 @@ const FIELD_MAPS: Record<string, FieldMap> = {
   booking: {
     title: ["review_title", "title"],
     rating: ["review_score", "rating", "score"],
-    author_name: ["guest_name", "author_name", "name"],
+    author_name: ["guest_name", "author_title", "author_name", "name"],
     review_text: ["review_text", "text"],
-    review_date: ["review_date", "date", "reviewed_at"],
-    review_url: ["hotel_url", "review_url", "url"],
+    review_date: ["review_date", "date", "reviewed_at", "review_timestamp"],
+    review_url: ["hotel_url", "review_url", "url", "query"],
   },
 };
 
@@ -71,11 +71,22 @@ function parseDate(raw: string | null, bookingFmt = false): string | null {
     january: "01", february: "02", march: "03", april: "04",
     may: "05", june: "06", july: "07", august: "08",
     september: "09", october: "10", november: "11", december: "12",
+    // Italian
+    gennaio: "01", febbraio: "02", marzo: "03", aprile: "04",
+    maggio: "05", giugno: "06", luglio: "07", agosto: "08",
+    settembre: "09", ottobre: "10", novembre: "11", dicembre: "12",
   };
-  const mMatch = s.match(/^(\w+)\s+(\d{1,2}),?\s+(\d{4})$/i);
-  if (mMatch) {
-    const mm = months[mMatch[1].toLowerCase()];
-    if (mm) return `${mMatch[3]}-${mm}-${mMatch[2].padStart(2, "0")}`;
+  // "January 15, 2026"
+  const enMatch = s.match(/^(\w+)\s+(\d{1,2}),?\s+(\d{4})$/i);
+  if (enMatch) {
+    const mm = months[enMatch[1].toLowerCase()];
+    if (mm) return `${enMatch[3]}-${mm}-${enMatch[2].padStart(2, "0")}`;
+  }
+  // "15 febbraio 2026"
+  const itMatch = s.match(/^(\d{1,2})\s+(\w+)\s+(\d{4})$/i);
+  if (itMatch) {
+    const mm = months[itMatch[2].toLowerCase()];
+    if (mm) return `${itMatch[3]}-${mm}-${itMatch[1].padStart(2, "0")}`;
   }
 
   const num = Number(s);
@@ -137,8 +148,10 @@ export async function ingestRawReviews(
     const url = sanitize(getField(raw, platform, "review_url", "")).slice(0, 255);
 
     if (isBooking) {
-      const pos = sanitize(raw.review_positives);
-      const neg = sanitize(raw.review_negatives);
+      // Botster format: review_positives / review_negatives
+      // Outscraper format: review_liked_text / review_disliked_text
+      const pos = sanitize(raw.review_positives ?? raw.review_liked_text);
+      const neg = sanitize(raw.review_negatives ?? raw.review_disliked_text);
       if (pos || neg) {
         text = pos && neg ? `${pos} ${neg}` : pos || neg;
       }

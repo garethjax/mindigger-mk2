@@ -49,6 +49,7 @@ const PLATFORM_LABELS: Record<string, string> = {
 export default function ScrapingDashboard({ configs, profileMap }: Props) {
   const [filter, setFilter] = useState<"all" | "active" | "failed" | "idle">("all");
   const [triggerLoading, setTriggerLoading] = useState<string | null>(null);
+  const [pollLoading, setPollLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   const supabase = createSupabaseBrowser();
@@ -87,9 +88,36 @@ export default function ScrapingDashboard({ configs, profileMap }: Props) {
     setTriggerLoading(null);
   }
 
+  async function pollScrapingStatus() {
+    setPollLoading(true);
+    setMessage(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("scraping-poll", {
+        body: {},
+      });
+      if (error) {
+        setMessage({ type: "err", text: `Errore polling: ${error.message}` });
+      } else {
+        const results = data?.results ?? [];
+        const completed = results.filter((r: { status: string }) => r.status === "completed").length;
+        const failed = results.filter((r: { status: string }) => r.status === "job_failed").length;
+        const processing = results.filter((r: { status: string }) => r.status !== "completed" && r.status !== "job_failed").length;
+        if (results.length === 0) {
+          setMessage({ type: "ok", text: "Nessun job attivo da controllare." });
+        } else {
+          setMessage({ type: "ok", text: `Controllati ${results.length} job: ${completed} completati, ${processing} in corso, ${failed} falliti. Ricarica la pagina.` });
+        }
+      }
+    } catch {
+      setMessage({ type: "err", text: "Errore durante il controllo." });
+    }
+    setPollLoading(false);
+  }
+
   return (
     <div class="space-y-4">
-      {/* Filter tabs */}
+      {/* Filter tabs + poll button */}
+      <div class="flex items-center justify-between">
       <div class="flex gap-2">
         {(
           [
@@ -111,6 +139,17 @@ export default function ScrapingDashboard({ configs, profileMap }: Props) {
             {tab.label}
           </button>
         ))}
+      </div>
+      {activeCount > 0 && (
+        <button
+          type="button"
+          disabled={pollLoading}
+          onClick={pollScrapingStatus}
+          class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+        >
+          {pollLoading ? "Controllo..." : "Controlla Stato"}
+        </button>
+      )}
       </div>
 
       {message && (
