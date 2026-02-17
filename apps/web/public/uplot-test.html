@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>uPlot Chart Test Page</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 20px; background: #f8f9fa; }
+    h1 { font-size: 1.5rem; margin-bottom: 1rem; }
+    h2 { font-size: 1.1rem; margin: 1.5rem 0 0.5rem; color: #333; }
+    .chart-box { background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .note { font-size: 12px; color: #666; margin-top: 4px; }
+    .note.red { color: #dc2626; font-weight: 600; }
+    pre { background: #f1f5f9; padding: 8px; border-radius: 4px; font-size: 11px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>uPlot Rendering Test — Diagnostica Serie</h1>
+  <p class="note">Obiettivo: capire perche la serie 1 (indice 1) non viene disegnata.</p>
+
+  <div class="grid">
+    <div>
+      <h2>A. Solo serie 1 — linea semplice</h2>
+      <div class="chart-box"><div id="chart-a"></div></div>
+      <p class="note">1 sola serie dati, linea rossa. Se non appare: problema con serie index 1.</p>
+    </div>
+    <div>
+      <h2>B. Solo serie 1 — barre</h2>
+      <div class="chart-box"><div id="chart-b"></div></div>
+      <p class="note">1 sola serie dati, bars rosse. Se non appare: bars + serie 1 = broken.</p>
+    </div>
+    <div>
+      <h2>C. 2 serie — linea (dummy serie 1 nascosta)</h2>
+      <div class="chart-box"><div id="chart-c"></div></div>
+      <p class="note red">TRICK: serie 1 = dummy nascosta, serie 2 = dati reali. Se funziona: conferma bug serie 1.</p>
+    </div>
+    <div>
+      <h2>D. 2 serie — barre (dummy serie 1 nascosta)</h2>
+      <div class="chart-box"><div id="chart-d"></div></div>
+      <p class="note red">TRICK: serie 1 = dummy nascosta, serie 2 = barre reali. Se funziona: workaround!</p>
+    </div>
+    <div>
+      <h2>E. Draw hook — disegno manuale su canvas</h2>
+      <div class="chart-box"><div id="chart-e"></div></div>
+      <p class="note">Bypass completo del rendering uPlot: disegno barre nel hook draw.</p>
+    </div>
+    <div>
+      <h2>F. Serie 1 con show:true esplicito</h2>
+      <div class="chart-box"><div id="chart-f"></div></div>
+      <p class="note">Stessa config di A ma con show:true e value espliciti.</p>
+    </div>
+  </div>
+
+  <h2>Debug info</h2>
+  <pre id="debug"></pre>
+
+  <script>
+    const dbg = document.getElementById("debug");
+    function log(msg) { dbg.textContent += msg + "\n"; }
+
+    log("uPlot version: " + (uPlot.version || "unknown"));
+    log("devicePixelRatio: " + window.devicePixelRatio);
+    log("uPlot.paths.bars: " + typeof uPlot.paths.bars);
+
+    // --- Simple dataset: 8 points ---
+    const DAY = 86400;
+    const WEEK = 7 * DAY;
+    const start = Math.floor(new Date("2025-11-01").getTime() / 1000);
+    const xs = [];
+    const vals = [30, 55, 42, 80, 65, 95, 48, 70];
+    for (let i = 0; i < vals.length; i++) {
+      xs.push(start + i * WEEK);
+    }
+
+    const fmtDateIT = uPlot.fmtDate("{DD}/{MM}/{YY}");
+    const W = 500, H = 260;
+
+    function countPixels(chartEl, label) {
+      setTimeout(() => {
+        const canvas = chartEl.querySelector('canvas');
+        if (!canvas) { log(label + " — no canvas found"); return; }
+        const ctx = canvas.getContext('2d');
+        const d = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        let colored = 0;
+        for (let p = 0; p < d.data.length; p += 4) {
+          if (d.data[p+3] > 0 && (d.data[p] > 20 || d.data[p+1] > 20 || d.data[p+2] > 20)) colored++;
+        }
+        log(label + " — colored pixels: " + colored + " (total: " + (canvas.width * canvas.height) + ")");
+      }, 500);
+    }
+
+    // ===== A. Solo serie 1 — linea =====
+    try {
+      const el = document.getElementById("chart-a");
+      new uPlot({
+        width: W, height: H,
+        series: [
+          {},
+          { label: "Conteggio", stroke: "red", width: 3, points: { show: true, size: 8 } },
+        ],
+        scales: { x: { time: true }, y: { min: 0 } },
+        axes: [
+          { values: (_u, s) => s.map(v => fmtDateIT(new Date(v * 1000))) },
+          { label: "N" },
+        ],
+      }, [xs, vals], el);
+      log("A. Solo serie 1, linea: OK");
+      countPixels(el, "A");
+    } catch(e) { log("A ERROR: " + e.message); }
+
+    // ===== B. Solo serie 1 — barre =====
+    try {
+      const el = document.getElementById("chart-b");
+      new uPlot({
+        width: W, height: H,
+        series: [
+          {},
+          {
+            label: "Conteggio",
+            fill: "rgba(220,38,38,0.6)",
+            stroke: "rgba(220,38,38,1)",
+            width: 1,
+            paths: uPlot.paths.bars({ size: [0.6, 100], gap: 4 }),
+          },
+        ],
+        scales: { x: { time: true }, y: { min: 0 } },
+        axes: [
+          { values: (_u, s) => s.map(v => fmtDateIT(new Date(v * 1000))) },
+          { label: "N" },
+        ],
+      }, [xs, vals], el);
+      log("B. Solo serie 1, bars: OK");
+      countPixels(el, "B");
+    } catch(e) { log("B ERROR: " + e.message); }
+
+    // ===== C. Dummy serie 1 + linea serie 2 =====
+    try {
+      const el = document.getElementById("chart-c");
+      const dummy = vals.map(() => null);
+      new uPlot({
+        width: W, height: H,
+        series: [
+          {},
+          { label: "hidden", show: false },
+          { label: "Conteggio", stroke: "blue", width: 3, points: { show: true, size: 8 } },
+        ],
+        scales: { x: { time: true }, y: { min: 0 } },
+        axes: [
+          { values: (_u, s) => s.map(v => fmtDateIT(new Date(v * 1000))) },
+          { label: "N" },
+        ],
+      }, [xs, dummy, vals], el);
+      log("C. Dummy s1 + line s2: OK");
+      countPixels(el, "C");
+    } catch(e) { log("C ERROR: " + e.message); }
+
+    // ===== D. Dummy serie 1 + barre serie 2 =====
+    try {
+      const el = document.getElementById("chart-d");
+      const dummy = vals.map(() => null);
+      new uPlot({
+        width: W, height: H,
+        series: [
+          {},
+          { label: "hidden", show: false },
+          {
+            label: "Conteggio",
+            fill: "rgba(59,130,246,0.6)",
+            stroke: "rgba(59,130,246,1)",
+            width: 1,
+            paths: uPlot.paths.bars({ size: [0.6, 100], gap: 4 }),
+          },
+        ],
+        scales: { x: { time: true }, y: { min: 0 } },
+        axes: [
+          { values: (_u, s) => s.map(v => fmtDateIT(new Date(v * 1000))) },
+          { label: "N" },
+        ],
+      }, [xs, dummy, vals], el);
+      log("D. Dummy s1 + bars s2: OK");
+      countPixels(el, "D");
+    } catch(e) { log("D ERROR: " + e.message); }
+
+    // ===== E. Draw hook — manual canvas =====
+    try {
+      const el = document.getElementById("chart-e");
+      new uPlot({
+        width: W, height: H,
+        series: [
+          {},
+          { label: "Conteggio", show: true, stroke: "transparent", width: 0, points: { show: false } },
+        ],
+        scales: { x: { time: true }, y: { min: 0, max: 100 } },
+        axes: [
+          { values: (_u, s) => s.map(v => fmtDateIT(new Date(v * 1000))) },
+          { label: "N" },
+        ],
+        hooks: {
+          draw: [
+            (u) => {
+              const ctx = u.ctx;
+              const xData = u.data[0];
+              const yData = u.data[1];
+              const barW = Math.max((u.bbox.width / xData.length) * 0.6 / devicePixelRatio, 4);
+              ctx.save();
+              ctx.fillStyle = "rgba(16,185,129,0.6)";
+              ctx.strokeStyle = "rgba(16,185,129,1)";
+              ctx.lineWidth = 1;
+              for (let i = 0; i < xData.length; i++) {
+                const cx = u.valToPos(xData[i], "x", true);
+                const cy = u.valToPos(yData[i], "y", true);
+                const y0 = u.valToPos(0, "y", true);
+                ctx.fillRect(cx - barW/2, cy, barW, y0 - cy);
+                ctx.strokeRect(cx - barW/2, cy, barW, y0 - cy);
+              }
+              ctx.restore();
+            }
+          ]
+        }
+      }, [xs, vals], el);
+      log("E. Draw hook bars: OK");
+      countPixels(el, "E");
+    } catch(e) { log("E ERROR: " + e.message); }
+
+    // ===== F. Serie 1 con show:true esplicito =====
+    try {
+      const el = document.getElementById("chart-f");
+      new uPlot({
+        width: W, height: H,
+        series: [
+          {},
+          {
+            label: "Conteggio",
+            show: true,
+            stroke: "rgb(220,38,38)",
+            fill: "rgba(220,38,38,0.3)",
+            width: 3,
+            value: (_u, v) => v == null ? "--" : v.toFixed(0),
+            points: { show: true, size: 8, fill: "rgb(220,38,38)" },
+          },
+        ],
+        scales: { x: { time: true }, y: { min: 0 } },
+        axes: [
+          { values: (_u, s) => s.map(v => fmtDateIT(new Date(v * 1000))) },
+          { label: "N" },
+        ],
+      }, [xs, vals], el);
+      log("F. Serie 1 show:true: OK");
+      countPixels(el, "F");
+    } catch(e) { log("F ERROR: " + e.message); }
+  </script>
+</body>
+</html>
