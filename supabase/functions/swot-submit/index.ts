@@ -1,5 +1,5 @@
 import { corsHeaders } from "../_shared/cors.ts";
-import { createAdminClient, requireAdmin } from "../_shared/supabase.ts";
+import { createAdminClient, isInternalRequest, requireAuthenticated } from "../_shared/supabase.ts";
 
 /**
  * swot-submit — triggered by user/admin request
@@ -79,11 +79,20 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ error: "Method not allowed" }), {
+      status: 405,
+      headers: { ...corsHeaders, "Content-Type": "application/json", Allow: "POST, OPTIONS" },
+    });
+  }
 
   try {
-    // Auth check — admin or business user who owns the SWOT
     const authHeader = req.headers.get("authorization");
-    if (!authHeader) throw new Error("Missing authorization header");
+    const internalInvocation = isInternalRequest(
+      authHeader,
+      req.headers.get("x-internal-secret"),
+    );
+    const caller = internalInvocation ? null : await requireAuthenticated(authHeader);
 
     const { swot_id } = await req.json();
     if (!swot_id) {
@@ -108,6 +117,26 @@ Deno.serve(async (req) => {
         JSON.stringify({ error: "SWOT analysis not found or not pending" }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
+    }
+
+    if (caller) {
+      const { data: profile, error: profileErr } = await db
+        .from("profiles")
+        .select("role, business_id")
+        .eq("id", caller.id)
+        .single();
+
+      if (profileErr || !profile) {
+        throw new Error("Forbidden");
+      }
+
+      const ownsBusiness = Boolean(profile.business_id && profile.business_id === swot.business_id);
+      if (profile.role !== "admin" && !ownsBusiness) {
+        return new Response(
+          JSON.stringify({ error: "Forbidden" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
     }
 
     // Calculate period start date
@@ -284,10 +313,11 @@ Deno.serve(async (req) => {
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : "Internal error";
-    return new Response(
-      JSON.stringify({ error: message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    const status = /authorization|token|access required|forbidden|unauthorized/i.test(message) ? 403 : 500;
+    return new Response(JSON.stringify({ error: message }), {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
 

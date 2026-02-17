@@ -1,4 +1,5 @@
 import { corsHeaders } from "../_shared/cors.ts";
+import { requireInternalOrAdmin } from "../_shared/supabase.ts";
 
 const BOTSTER_API_KEY = Deno.env.get("BOTSTER_API_KEY")!;
 const API_BASE = "https://botster.io/api/v2";
@@ -22,6 +23,12 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ error: "Method not allowed" }), {
+      status: 405,
+      headers: { ...corsHeaders, "Content-Type": "application/json", Allow: "POST, OPTIONS" },
+    });
+  }
 
   const cutoffMs = Date.now() - DAYS_THRESHOLD * 24 * 60 * 60 * 1000;
   let archived = 0;
@@ -29,6 +36,11 @@ Deno.serve(async (req) => {
   let totalScanned = 0;
 
   try {
+    await requireInternalOrAdmin(
+      req.headers.get("authorization"),
+      req.headers.get("x-internal-secret"),
+    );
+
     // Paginate through all Botster jobs
     let page = 1;
     const perPage = 50;
@@ -109,13 +121,15 @@ Deno.serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {
+    const message = err instanceof Error ? err.message : "Internal error";
+    const status = /authorization|token|access required|forbidden|unauthorized/i.test(message) ? 403 : 500;
     return new Response(
       JSON.stringify({
-        error: err instanceof Error ? err.message : "Internal error",
+        error: message,
         archived,
         errors,
       }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      { status, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 });
