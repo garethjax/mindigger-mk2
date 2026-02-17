@@ -38,3 +38,10 @@ npm-debug.log*
 # Legacy data (dump, credentials)
 PIANO/old_dump/
 PIANO/old_env.txt
+
+# Legacy analysis artifacts (not part of deployable code)
+PIANO/export_botster/
+PIANO/log_openai/
+PIANO/scraping/
+scripts/reports/topic-compare-*.json
+scripts/data/*-reviews-sample.json

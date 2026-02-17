@@ -1,5 +1,9 @@
 # Digital Matrix Monorepo — Project Notes
 
+## general behaviour
+
+whenever a major feature is a planned, propose a branch
+
 ## Stack
 
 - **Frontend**: Astro SSR + Preact islands + Tailwind CSS

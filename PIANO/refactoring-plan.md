@@ -139,7 +139,7 @@ Botster addebita un costo giornaliero di storage per ogni job. Va automatizzata 
 - Idempotenza: `SELECT ... FOR UPDATE SKIP LOCKED` per claim atomico
 - Porta logica da: `mindigger_back/.../botster/adapters/abstract_core_adapter.py`
 
-**`scraping/poll`** (chiamata da pg_cron ogni minuto)
+**`scraping/poll`** (pg_cron ogni minuto, chiamata condizionale)
 - Queries scraping_configs con status='elaborating'
 - Claim atomico con `FOR UPDATE SKIP LOCKED` (sostituisce `@no_simultaneous_execution`)
 - Per ognuna: chiama Botster API check status → se completato: parse results + store_reviews con MD5 dedup
@@ -165,8 +165,8 @@ Botster addebita un costo giornaliero di storage per ogni job. Va automatizzata 
 
 ### pg_cron schedules:
 ```sql
--- Poll Botster ogni minuto
-SELECT cron.schedule('poll-scraping-jobs', '* * * * *', ...);
+-- Poll Botster ogni minuto (ma invoca Edge Function solo se esistono job attivi)
+SELECT cron.schedule('poll-scraping-jobs', '* * * * *', ... WHERE EXISTS (...status IN ('elaborating','checking')));
 -- Scraping settimanale (Google + TripAdvisor) - Lunedì 00:00
 SELECT cron.schedule('weekly-scraping', '0 0 * * 1', ...);
 -- Scraping mensile (Booking) - 1° del mese 00:00
@@ -175,7 +175,7 @@ SELECT cron.schedule('monthly-scraping', '0 0 1 * *', ...);
 SELECT cron.schedule('botster-cleanup', '0 3 * * 0', ...);
 ```
 
-**Verifica:** Trigger manuale scraping → depth corretto usato (initial/recurring) → poll recupera risultati → reviews salvate con dedup → cleanup archivia job vecchi
+**Verifica:** Trigger manuale scraping → depth corretto usato (initial/recurring) → poll recupera risultati → reviews salvate con dedup → quando non ci sono job attivi il poll non invoca Edge Functions → cleanup archivia job vecchi
 
 ---
 
@@ -209,7 +209,7 @@ interface AIProvider {
 
 ### Edge Functions:
 
-**`analysis/submit`** (pg_cron ogni minuto, sostituisce ReviewsAnalyzer)
+**`analysis/submit`** (pg_cron ogni minuto, invocazione condizionale)
 - Query reviews PENDING (e stale ELABORATING >24h), raggruppa per business_sector
 - Per ogni settore: costruisce prompt con categorie disponibili (system prompt parametrico)
 - Gestione "Senza Commenti": reviews senza testo → skip AI, assegna categoria automatica
@@ -217,7 +217,7 @@ interface AIProvider {
 - Direct mode → analyzeDirect() + salva risultati subito
 - Porta logica da: `mindigger_back/.../reviews/tasks/ai_interfaces/reviews_analyzer.py`
 
-**`analysis/poll`** (pg_cron ogni minuto, sostituisce ReviewsBatchRetrieval)
+**`analysis/poll`** (pg_cron ogni minuto, chiamata condizionale)
 - Query ai_batches con status='in_progress', batch_type='reviews'
 - Per ogni batch: checkBatchStatus() → se completo: retrieveBatchResults()
 - Processa risultati: assegna categorie (match case-insensitive), crea topics + topic_scores, salva ai_result
@@ -229,6 +229,7 @@ interface AIProvider {
 - Input SWOT: reviews filtrate per location + period + categorie
 - Output: strengths/weaknesses/opportunities/threats (points[]) + operational_suggestions
 - Statistiche pre-calcolate: breakdown per categoria con high/low ratings
+- Poll condizionale: invocato solo quando ci sono batch SWOT `in_progress`
 - Porta logica da: `mindigger_back/.../reviews/tasks/ai_interfaces/swot_analyzer.py`
 
 **`embeddings/generate`** (chiamata da admin, background)
@@ -493,6 +494,7 @@ API proposta (alto livello):
 | Storage DB > 500MB con embeddings | Indice HNSW parziale (solo righe con embedding). Dimensioni riducibili (768→512→256). Pro tier $25/mese se necessario |
 | Costi embedding incontrollati | Opt-in per business, stima costo mostrata in admin prima dell'attivazione |
 | Concorrenza cron jobs | `SELECT ... FOR UPDATE SKIP LOCKED` per claim atomico record |
+| Invocazioni cron a vuoto (idle cost) | Polling event-driven: `cron.schedule('* * * * *')` + `WHERE EXISTS` prima di `net.http_post` |
 | Password legacy incompatibili | Reset password obbligatorio, comunicazione diretta ai ~24 utenti |
 
 ---
