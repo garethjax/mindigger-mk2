@@ -1,5 +1,5 @@
 import { corsHeaders } from "../_shared/cors.ts";
-import { createAdminClient, requireAdmin } from "../_shared/supabase.ts";
+import { createAdminClient, requireInternalOrAdmin } from "../_shared/supabase.ts";
 
 /**
  * analysis-submit — pg_cron every minute
@@ -15,6 +15,7 @@ import { createAdminClient, requireAdmin } from "../_shared/supabase.ts";
 const BATCH_LIMIT = 20_000;
 const STALE_HOURS = 24;
 const CLAIM_CHUNK_SIZE = 500;
+const SUBMIT_COOLDOWN_SECONDS = 45;
 
 // Inline provider logic to avoid cross-package import issues in Deno Edge Functions
 const OPENAI_API = "https://api.openai.com/v1";
@@ -109,16 +110,22 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
-
-  const db = createAdminClient();
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ error: "Method not allowed" }), {
+      status: 405,
+      headers: { ...corsHeaders, "Content-Type": "application/json", Allow: "POST, OPTIONS" },
+    });
+  }
 
   try {
+    await requireInternalOrAdmin(
+      req.headers.get("authorization"),
+      req.headers.get("x-internal-secret"),
+    );
+
+    const db = createAdminClient();
     const body = await req.json().catch(() => ({})) as { location_id?: string };
     const targetLocationId = body.location_id?.trim() || null;
-
-    if (targetLocationId) {
-      await requireAdmin(req.headers.get("authorization"));
-    }
 
     // Get active AI config
     const { data: aiConfig, error: configErr } = await db
@@ -158,6 +165,32 @@ Deno.serve(async (req) => {
           location_id: targetLocationId,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // Cooldown guard against rapid repeated triggers
+    const cooldownSince = new Date(Date.now() - SUBMIT_COOLDOWN_SECONDS * 1000).toISOString();
+    let recentBatchQuery = db
+      .from("ai_batches")
+      .select("id", { count: "exact", head: true })
+      .eq("batch_type", "reviews")
+      .gte("created_at", cooldownSince);
+
+    if (targetLocationId) {
+      recentBatchQuery = recentBatchQuery.contains("metadata", { location_id: targetLocationId });
+    }
+
+    const { count: recentBatches, error: recentBatchErr } = await recentBatchQuery;
+    if (recentBatchErr) throw recentBatchErr;
+
+    if ((recentBatches ?? 0) > 0) {
+      return new Response(
+        JSON.stringify({
+          message: "Review analysis trigger is in cooldown",
+          cooldown_seconds: SUBMIT_COOLDOWN_SECONDS,
+          location_id: targetLocationId,
+        }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
@@ -477,10 +510,12 @@ Deno.serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {
-    return new Response(
-      JSON.stringify({ error: err instanceof Error ? err.message : "Internal error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    const message = err instanceof Error ? err.message : "Internal error";
+    const status = /authorization|token|access required|forbidden|unauthorized/i.test(message) ? 403 : 500;
+    return new Response(JSON.stringify({ error: message }), {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
 

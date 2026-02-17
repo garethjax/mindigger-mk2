@@ -1,5 +1,5 @@
 import { corsHeaders } from "../_shared/cors.ts";
-import { createAdminClient } from "../_shared/supabase.ts";
+import { createAdminClient, requireInternalOrAdmin } from "../_shared/supabase.ts";
 
 const BOTSTER_API_KEY = Deno.env.get("BOTSTER_API_KEY")!;
 const API_BASE = "https://botster.io/api/v2";
@@ -25,12 +25,22 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
-
-  const db = createAdminClient();
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ error: "Method not allowed" }), {
+      status: 405,
+      headers: { ...corsHeaders, "Content-Type": "application/json", Allow: "POST, OPTIONS" },
+    });
+  }
   const triggered: string[] = [];
   const errors: string[] = [];
 
   try {
+    await requireInternalOrAdmin(
+      req.headers.get("authorization"),
+      req.headers.get("x-internal-secret"),
+    );
+
+    const db = createAdminClient();
     // Determine which frequency to process based on request body or day of month
     const body = await req.json().catch(() => ({}));
     const frequency = body.frequency as string | undefined;
@@ -162,9 +172,11 @@ Deno.serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {
-    return new Response(
-      JSON.stringify({ error: err instanceof Error ? err.message : "Internal error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    const message = err instanceof Error ? err.message : "Internal error";
+    const status = /authorization|token|access required|forbidden|unauthorized/i.test(message) ? 403 : 500;
+    return new Response(JSON.stringify({ error: message }), {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });

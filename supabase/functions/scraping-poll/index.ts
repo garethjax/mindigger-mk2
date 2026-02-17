@@ -1,5 +1,5 @@
 import { corsHeaders } from "../_shared/cors.ts";
-import { createAdminClient } from "../_shared/supabase.ts";
+import { createAdminClient, requireInternalOrAdmin } from "../_shared/supabase.ts";
 import { ingestRawReviews } from "../_shared/scraping-ingest.ts";
 
 const BOTSTER_API_KEY = Deno.env.get("BOTSTER_API_KEY")!;
@@ -11,11 +11,21 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
-
-  const db = createAdminClient();
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ error: "Method not allowed" }), {
+      status: 405,
+      headers: { ...corsHeaders, "Content-Type": "application/json", Allow: "POST, OPTIONS" },
+    });
+  }
   const results: { config_id: string; status: string; reviews_stored?: number }[] = [];
 
   try {
+    await requireInternalOrAdmin(
+      req.headers.get("authorization"),
+      req.headers.get("x-internal-secret"),
+    );
+
+    const db = createAdminClient();
     // Find all configs currently being processed
     const { data: activeConfigs, error: queryErr } = await db
       .from("scraping_configs")
@@ -154,9 +164,10 @@ Deno.serve(async (req) => {
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : "Internal error";
-    return new Response(
-      JSON.stringify({ error: message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    const status = /authorization|token|access required|forbidden|unauthorized/i.test(message) ? 403 : 500;
+    return new Response(JSON.stringify({ error: message }), {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });

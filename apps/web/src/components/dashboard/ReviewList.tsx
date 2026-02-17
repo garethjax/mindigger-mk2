@@ -39,6 +39,19 @@ function topicBadgeColor(score: number): string {
   return "bg-red-700 text-white";
 }
 
+function toSafeExternalUrl(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return null;
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
 interface Props {
   filters: FilterState;
   businessId: string;
@@ -130,58 +143,61 @@ export default function ReviewList({ filters, businessId }: Props) {
         <div class="py-8 text-center text-sm text-gray-400">Nessuna recensione trovata</div>
       ) : (
         <div class="space-y-3">
-          {reviews.map((review) => (
-            <div key={review.id} class="rounded-lg border border-gray-200 bg-white p-4">
-              <div class="mb-2 flex items-start justify-between gap-3">
-                <div class="flex items-center gap-2">
-                  {renderStars(review.rating)}
-                  <span
-                    class={`rounded-full px-2 py-0.5 text-[10px] font-medium ${SOURCE_COLORS[review.source] ?? "bg-gray-100 text-gray-600"}`}
-                  >
-                    {SOURCE_LABELS[review.source] ?? review.source}
-                  </span>
-                  {review.url && (
-                    <a
-                      href={review.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="text-[10px] text-blue-500 hover:text-blue-700 hover:underline"
-                    >
-                      Vedi originale &#8599;
-                    </a>
-                  )}
-                </div>
-                <div class="text-xs text-gray-400">
-                  {review.review_date ?? ""}
-                </div>
-              </div>
-
-              {review.title && (
-                <h3 class="mb-1 text-sm font-medium">{review.title}</h3>
-              )}
-
-              {review.text && (
-                <p class="text-sm text-gray-600 line-clamp-3">{review.text}</p>
-              )}
-
-              {review.ai_result?.italian_topics && review.ai_result.italian_topics.length > 0 && (
-                <div class="mt-2 flex flex-wrap gap-1">
-                  {review.ai_result.italian_topics.map((t) => (
+          {reviews.map((review) => {
+            const safeReviewUrl = toSafeExternalUrl(review.url);
+            return (
+              <div key={review.id} class="rounded-lg border border-gray-200 bg-white p-4">
+                <div class="mb-2 flex items-start justify-between gap-3">
+                  <div class="flex items-center gap-2">
+                    {renderStars(review.rating)}
                     <span
-                      key={t.italian_name}
-                      class={`rounded px-2 py-1 text-sm font-medium ${topicBadgeColor(t.score)}`}
+                      class={`rounded-full px-2 py-0.5 text-[10px] font-medium ${SOURCE_COLORS[review.source] ?? "bg-gray-100 text-gray-600"}`}
                     >
-                      {t.italian_name}
+                      {SOURCE_LABELS[review.source] ?? review.source}
                     </span>
-                  ))}
+                    {safeReviewUrl && (
+                      <a
+                        href={safeReviewUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="text-[10px] text-blue-500 hover:text-blue-700 hover:underline"
+                      >
+                        Vedi originale &#8599;
+                      </a>
+                    )}
+                  </div>
+                  <div class="text-xs text-gray-400">
+                    {review.review_date ?? ""}
+                  </div>
                 </div>
-              )}
 
-              <div class="mt-2 text-xs text-gray-400">
-                {review.author ?? "Anonimo"}
+                {review.title && (
+                  <h3 class="mb-1 text-sm font-medium">{review.title}</h3>
+                )}
+
+                {review.text && (
+                  <p class="text-sm text-gray-600 line-clamp-3">{review.text}</p>
+                )}
+
+                {review.ai_result?.italian_topics && review.ai_result.italian_topics.length > 0 && (
+                  <div class="mt-2 flex flex-wrap gap-1">
+                    {review.ai_result.italian_topics.map((t) => (
+                      <span
+                        key={t.italian_name}
+                        class={`rounded px-2 py-1 text-sm font-medium ${topicBadgeColor(t.score)}`}
+                      >
+                        {t.italian_name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div class="mt-2 text-xs text-gray-400">
+                  {review.author ?? "Anonimo"}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
