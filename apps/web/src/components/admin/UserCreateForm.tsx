@@ -1,14 +1,18 @@
 import { useState, useRef, useEffect } from "preact/hooks";
+import { generatePassphrase } from "@/lib/passphrase";
 
 interface Props {
   businesses: { id: string; name: string }[];
 }
 
 export default function UserCreateForm({ businesses }: Props) {
+  const MIN_PASSPHRASE_LENGTH = 10;
+
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
-  const [password, setPassword] = useState("");
+  const [password, setPassword] = useState(() => generatePassphrase());
   const [showPassword, setShowPassword] = useState(true);
+  const [sendRecoveryEmail, setSendRecoveryEmail] = useState(true);
   const [role, setRole] = useState<"business" | "admin">("business");
   const [businessId, setBusinessId] = useState("");
   const [loading, setLoading] = useState(false);
@@ -44,6 +48,12 @@ export default function UserCreateForm({ businesses }: Props) {
     setSuccess("");
 
     try {
+      if (password.length < MIN_PASSPHRASE_LENGTH) {
+        setError(`La passphrase deve avere almeno ${MIN_PASSPHRASE_LENGTH} caratteri.`);
+        setLoading(false);
+        return;
+      }
+
       const res = await fetch("/api/admin/create-user", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -53,6 +63,7 @@ export default function UserCreateForm({ businesses }: Props) {
           full_name: fullName,
           role,
           business_id: businessId || undefined,
+          send_recovery_email: sendRecoveryEmail,
         }),
       });
       const data = await res.json();
@@ -62,16 +73,28 @@ export default function UserCreateForm({ businesses }: Props) {
         setLoading(false);
         return;
       }
+
+      const successParts: string[] = ["Utente creato con successo."];
+      if (data.recovery_email_sent) {
+        successParts.push("Email con link sicuro di impostazione password inviata.");
+      }
+      if (data.warning) {
+        successParts.push(data.warning);
+      }
+      if (data.generated_passphrase && !data.recovery_email_sent) {
+        successParts.push(`Passphrase temporanea: ${data.generated_passphrase}`);
+      }
+      setSuccess(successParts.join(" "));
     } catch (err) {
       setError("Errore di rete");
       setLoading(false);
       return;
     }
 
-    setSuccess("Utente creato con successo!");
     setEmail("");
     setFullName("");
-    setPassword("");
+    setPassword(generatePassphrase());
+    setSendRecoveryEmail(true);
     setRole("business");
     setBusinessId("");
     setBizSearch("");
@@ -102,24 +125,53 @@ export default function UserCreateForm({ businesses }: Props) {
       </div>
 
       <div>
-        <label class="mb-1 block text-xs font-medium text-gray-500">Password *</label>
+        <label class="mb-1 block text-xs font-medium text-gray-500">Passphrase iniziale *</label>
         <div class="relative">
           <input
             type={showPassword ? "text" : "password"}
             required
-            minLength={6}
+            minLength={MIN_PASSPHRASE_LENGTH}
             value={password}
             onInput={(e) => setPassword((e.target as HTMLInputElement).value)}
-            class="w-full rounded-lg border border-gray-300 px-3 py-2 pr-16 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 pr-32 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
-          <button
-            type="button"
-            onClick={() => setShowPassword(!showPassword)}
-            class="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-0.5 text-xs text-gray-500 hover:text-gray-700"
-          >
-            {showPassword ? "Nascondi" : "Mostra"}
-          </button>
+          <div class="absolute right-2 top-1/2 flex -translate-y-1/2 gap-1">
+            <button
+              type="button"
+              onClick={() => setPassword(generatePassphrase())}
+              class="rounded px-2 py-0.5 text-xs text-gray-500 hover:text-gray-700"
+            >
+              Rigenera
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              class="rounded px-2 py-0.5 text-xs text-gray-500 hover:text-gray-700"
+            >
+              {showPassword ? "Nascondi" : "Mostra"}
+            </button>
+          </div>
         </div>
+        <p class="mt-1 text-xs text-gray-500">
+          Minimo {MIN_PASSPHRASE_LENGTH} caratteri. L&apos;utente dovrà cambiarla al primo accesso.
+        </p>
+      </div>
+
+      <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+        <label class="flex items-start gap-2 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={sendRecoveryEmail}
+            onChange={(e) => setSendRecoveryEmail((e.target as HTMLInputElement).checked)}
+            class="mt-0.5"
+          />
+          <span>
+            Invia subito email con link sicuro per impostare la password
+            <span class="mt-1 block text-xs text-gray-500">
+              Nessuna password viene inviata in chiaro via email.
+            </span>
+          </span>
+        </label>
       </div>
 
       <div>

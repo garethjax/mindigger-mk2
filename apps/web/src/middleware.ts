@@ -69,6 +69,12 @@ export const onRequest = defineMiddleware(async (context, next) => {
     return applySecurityHeaders(context.redirect("/auth/login?error=account_disabled"));
   }
 
+  // Force password update for accounts created/reset with temporary passphrase
+  const mustChangePassword = user.user_metadata?.must_change_password === true;
+  if (mustChangePassword && !pathname.startsWith("/settings")) {
+    return applySecurityHeaders(context.redirect("/settings?reset=true"));
+  }
+
   // Admin routes: require admin role
   if (pathname.startsWith("/regia") && profile?.role !== "admin") {
     return applySecurityHeaders(context.redirect("/analytics"));
