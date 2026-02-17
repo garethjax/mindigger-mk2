@@ -150,6 +150,7 @@ type Args = {
   outPath?: string;
   limit?: number;
   temperature: number;
+  promptSuffix?: string;
 };
 
 function parseArgs(argv: string[]): Args {
@@ -179,6 +180,7 @@ function parseArgs(argv: string[]): Args {
   const outPath = map.get("--out");
   const limitRaw = map.get("--limit");
   const tempRaw = map.get("--temperature");
+  const promptSuffix = map.get("--prompt-suffix");
 
   if (!inputPath || !sectorName || !categoriesRaw || !candidateModel) {
     printHelp();
@@ -212,6 +214,7 @@ function parseArgs(argv: string[]): Args {
     outPath,
     limit,
     temperature,
+    promptSuffix,
   };
 }
 
@@ -229,6 +232,7 @@ Optional:
   --baseline-model <model>     Default: ${DEFAULT_BASELINE_MODEL}
   --limit <n>                  Process first N reviews
   --temperature <n>            Default: ${DEFAULT_TEMPERATURE}
+  --prompt-suffix <text>       Extra instruction appended to system prompt
   --out <path>                 Output JSON path
   --help
 `);
@@ -465,7 +469,10 @@ async function main(): Promise<void> {
     throw new Error("No valid reviews found in input");
   }
 
-  const systemPrompt = buildReviewSystemPrompt(args.sectorName, args.categories);
+  const basePrompt = buildReviewSystemPrompt(args.sectorName, args.categories);
+  const systemPrompt = args.promptSuffix
+    ? `${basePrompt}\n\n${args.promptSuffix}`
+    : basePrompt;
   const rows: CompareRow[] = [];
 
   console.log(
@@ -507,6 +514,7 @@ async function main(): Promise<void> {
       temperature: args.temperature,
       sector_name: args.sectorName,
       categories: args.categories,
+      prompt_suffix: args.promptSuffix ?? null,
       input_path: resolve(args.inputPath),
       reviews_processed: reviews.length,
     },

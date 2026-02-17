@@ -11,7 +11,8 @@
     "preview": "bun --filter web preview",
     "migrate": "bun run scripts/migrate.ts",
     "validate-migration": "bun run scripts/validate-migration.ts",
-    "compare-topics": "bun run scripts/compare-topic-extraction.ts"
+    "compare-topics": "bun run scripts/compare-topic-extraction.ts",
+    "compare-topics-batch": "bun run scripts/compare-topic-extraction-batch.ts"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.95.3",
