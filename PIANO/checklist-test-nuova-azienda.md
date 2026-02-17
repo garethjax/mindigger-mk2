@@ -85,19 +85,24 @@ Obiettivo: verificare il flusso completo di onboarding di una nuova azienda nel 
 
 ## 8. Test SWOT (se OPENAI_API_KEY configurata)
 
-- [ ] Login come utente business
-- [ ] Navigare a SWOT (`/swot`)
-- [ ] Click "Nuova Analisi SWOT" (`/swot/create`)
-- [ ] Selezionare location e periodo, confermare
-- [ ] Verificare che appaia "In analisi" (non "Analisi creata ma invio fallito")
+- [X ] Login come utente business
+- [X ] Navigare a SWOT (`/swot`)
+- [X ] Click "Nuova Analisi SWOT" (`/swot/create`)
+- [X ] Selezionare location e periodo, confermare
+- [X ] Verificare che appaia "In analisi" (non "Analisi creata ma invio fallito")
 - [ ] Attendere completamento (1-5 minuti, dipende dal batch OpenAI)
 - [ ] Verificare che la SWOT completata mostri i 4 quadranti + spunti operativi
 
+
 ## Bug noti da verificare (regressioni)
 
-- [ ] **max_rows**: con date range ampio (es. dal 2008), il conteggio non deve essere troncato a 1000
-- [ ] **Grafici vuoti**: dopo cambio filtro argomento e ritorno a "Tutti gli argomenti", i grafici devono avere dati
-- [ ] **JWT edge functions**: le chiamate da browser a edge functions non devono dare "Invalid JWT"
+- [X] **max_rows**: `max_rows` alzato a 50000 in `config.toml`. Testato con date 2010-2026, nessun troncamento.
+- [X] **Grafici vuoti**: dopo cambio filtro argomento e ritorno a "Tutti gli argomenti", i grafici devono avere dati
+- [X] **JWT edge functions**: workaround attivo (`verify_jwt = false` in config.toml per ogni funzione chiamata da browser). Le funzioni validano auth internamente via `getUser()`. Vedi nota pre-deploy sotto.
+
+### Nota pre-deploy: riattivazione JWT verification
+
+> **TODO prima di andare in produzione:** il `verify_jwt = false` in `supabase/config.toml` e' un workaround per il bug upstream Supabase [#41691](https://github.com/supabase/supabase/issues/41691) (gateway rejects ES256 user JWTs). Quando il bug sara' risolto upstream, riattivare `verify_jwt = true` per tutte le edge functions e rimuovere la validazione manuale interna. Monitorare lo stato dell'issue.
 
 ## Note per la sessione
 
