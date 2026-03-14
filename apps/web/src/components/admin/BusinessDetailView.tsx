@@ -1,11 +1,16 @@
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import { createSupabaseBrowser } from "@/lib/supabase";
 import { PLATFORM_DEFAULTS } from "@/lib/scraping-defaults";
 import PlaceFinder from "./PlaceFinder";
 import {
   applyLocationUpdate,
+  buildScrapingConfigUpdatePayload,
   buildLocationUpdatePayload,
   formatFunctionInvokeError,
+  getToastDuration,
+  getScrapingConfigFieldMeta,
+  getScrapingConfigFieldValue,
+  isScrapingConfigBusy,
   type EditableLocation,
 } from "./helpers";
 
@@ -185,6 +190,9 @@ export default function BusinessDetailView({
   const [configuringLocationId, setConfiguringLocationId] = useState<string | null>(null);
   const [platformFields, setPlatformFields] = useState<PlatformFields>({ ...INITIAL_PLATFORM_FIELDS });
   const [configSaving, setConfigSaving] = useState(false);
+  const [editingConfigId, setEditingConfigId] = useState<string | null>(null);
+  const [editingConfigValue, setEditingConfigValue] = useState("");
+  const [editingConfigSaving, setEditingConfigSaving] = useState<string | null>(null);
 
   const supabase = createSupabaseBrowser();
 
@@ -194,6 +202,14 @@ export default function BusinessDetailView({
     list.push(c);
     configsByLocation.set(c.location_id, list);
   }
+
+  useEffect(() => {
+    if (!message) return;
+    const timeoutId = window.setTimeout(() => {
+      setMessage(null);
+    }, getToastDuration(message.type));
+    return () => window.clearTimeout(timeoutId);
+  }, [message]);
 
   async function saveBusiness(e: Event) {
     e.preventDefault();
@@ -249,20 +265,41 @@ export default function BusinessDetailView({
     setAddLoading(false);
   }
 
-  async function triggerScraping(locationId: string, platform: string) {
-    const key = `${locationId}:${platform}`;
+  async function triggerScraping(locationId: string, config: ScrapingConfig) {
+    const key = `${locationId}:${config.platform}`;
+    if (triggerLoading === key) {
+      return;
+    }
+
+    const currentConfig = configs.find((item) => item.id === config.id) ?? config;
+    if (isScrapingConfigBusy(currentConfig.status)) {
+      setMessage({
+        type: "err",
+        text: `Scraping già in corso per ${PLATFORM_LABELS[currentConfig.platform] ?? currentConfig.platform}.`,
+      });
+      return;
+    }
+
     setTriggerLoading(key);
     setMessage(null);
 
     const { error } = await supabase.functions.invoke("scraping-trigger", {
-      body: { location_id: locationId, platform },
+      body: { location_id: locationId, platform: config.platform },
     });
 
     if (error) {
       const detail = await formatFunctionInvokeError(error as { message: string; context?: Response });
       setMessage({ type: "err", text: `Errore trigger: ${detail}` });
     } else {
-      setMessage({ type: "ok", text: `Scraping avviato per ${PLATFORM_LABELS[platform] ?? platform}` });
+      setConfigs(configs.map((item) =>
+        item.id === config.id
+          ? { ...item, status: "elaborating" }
+          : item
+      ));
+      setMessage({
+        type: "ok",
+        text: `Scraping avviato per ${PLATFORM_LABELS[config.platform] ?? config.platform}`,
+      });
     }
     setTriggerLoading(null);
   }
@@ -491,6 +528,48 @@ export default function BusinessDetailView({
     setConfigSaving(false);
   }
 
+  function openConfigEditor(config: ScrapingConfig) {
+    setEditingConfigId(config.id);
+    setEditingConfigValue(getScrapingConfigFieldValue(config.platform, config.platform_config ?? {}));
+    setMessage(null);
+  }
+
+  function cancelConfigEditor() {
+    setEditingConfigId(null);
+    setEditingConfigValue("");
+  }
+
+  async function saveConfigSource(config: ScrapingConfig) {
+    const payload = buildScrapingConfigUpdatePayload(config.platform, editingConfigValue);
+    const rawValue = Object.values(payload.platform_config)[0] ?? "";
+    if (!rawValue) {
+      setMessage({ type: "err", text: "Il riferimento sorgente non può essere vuoto." });
+      return;
+    }
+
+    setEditingConfigSaving(config.id);
+    setMessage(null);
+
+    const { error } = await supabase
+      .from("scraping_configs")
+      .update(payload)
+      .eq("id", config.id);
+
+    if (error) {
+      setMessage({ type: "err", text: `Errore config scraping: ${error.message}` });
+    } else {
+      setConfigs(configs.map((item) =>
+        item.id === config.id
+          ? { ...item, platform_config: payload.platform_config }
+          : item
+      ));
+      setMessage({ type: "ok", text: `Sorgente ${PLATFORM_LABELS[config.platform] ?? config.platform} aggiornata.` });
+      cancelConfigEditor();
+    }
+
+    setEditingConfigSaving(null);
+  }
+
   return (
     <div class="space-y-6">
       {/* Dati Azienda */}
@@ -630,12 +709,26 @@ export default function BusinessDetailView({
       </div>
 
       {message && (
-        <div
-          class={`rounded-lg p-3 text-sm ${
-            message.type === "ok" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
-          }`}
-        >
-          {message.text}
+        <div class="pointer-events-none fixed right-6 top-6 z-50">
+          <div
+            class={`pointer-events-auto min-w-80 max-w-md rounded-xl border px-4 py-3 shadow-lg backdrop-blur ${
+              message.type === "ok"
+                ? "border-green-200 bg-green-50/95 text-green-800"
+                : "border-red-200 bg-red-50/95 text-red-800"
+            }`}
+            aria-live="polite"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <p class="text-sm font-medium">{message.text}</p>
+              <button
+                type="button"
+                onClick={() => setMessage(null)}
+                class="shrink-0 text-xs font-medium opacity-70 hover:opacity-100"
+              >
+                Chiudi
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -842,59 +935,104 @@ export default function BusinessDetailView({
                           const key = `${loc.id}:${cfg.platform}`;
                           const isLoading = triggerLoading === key;
                           const isImporting = importLoading === `${cfg.id}:import`;
-                          const configStr = Object.entries(cfg.platform_config ?? {})
-                            .map(([k, v]) => `${k}: ${v}`)
-                            .join(", ");
+                          const fieldMeta = getScrapingConfigFieldMeta(cfg.platform);
+                          const configValue = getScrapingConfigFieldValue(cfg.platform, cfg.platform_config ?? {});
+                          const isEditingConfig = editingConfigId === cfg.id;
 
                           return (
                             <div
                               key={cfg.id}
-                              class="flex items-center justify-between rounded border border-gray-200 bg-white px-3 py-2"
+                              class="rounded border border-gray-200 bg-white px-3 py-2"
                             >
-                              <div class="flex items-center gap-3">
-                                <span class="text-xs font-medium text-gray-600">
-                                  {PLATFORM_LABELS[cfg.platform] ?? cfg.platform}
-                                </span>
-                                <span class={`rounded-full px-2 py-0.5 text-xs font-medium ${st.color}`}>
-                                  {st.label}
-                                </span>
-                                {cfg.initial_scrape_done && (
-                                  <span class="text-xs text-gray-400">
-                                    Ultimo: {cfg.last_scraped_at
-                                      ? new Date(cfg.last_scraped_at).toLocaleDateString("it-IT")
-                                      : "—"}
-                                  </span>
-                                )}
-                                {configStr && (
-                                  <span class="text-xs text-gray-300 font-mono truncate max-w-48">
-                                    {configStr}
-                                  </span>
-                                )}
-                              </div>
-                              <div class="flex items-center gap-2">
-                                <label class="cursor-pointer rounded border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50">
-                                  {isImporting ? "Import..." : "Importa recensioni"}
-                                  <input
-                                    type="file"
-                                    accept=".json,application/json"
-                                    class="hidden"
-                                    disabled={isImporting || isLoading}
-                                    onChange={(e) => {
-                                      const input = e.target as HTMLInputElement;
-                                      const file = input.files?.[0] ?? null;
-                                      void importReviewsFromJson(cfg.id, cfg.platform, file);
-                                      input.value = "";
-                                    }}
-                                  />
-                                </label>
-                                <button
-                                  type="button"
-                                  disabled={isLoading || isImporting || cfg.status === "elaborating" || cfg.status === "checking"}
-                                  onClick={() => triggerScraping(loc.id, cfg.platform)}
-                                  class="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                                >
-                                  {isLoading ? "..." : "Avvia Scraping rapido"}
-                                </button>
+                              <div class="flex items-start justify-between gap-4">
+                                <div class="min-w-0 flex-1">
+                                  <div class="flex flex-wrap items-center gap-3">
+                                    <span class="text-xs font-medium text-gray-600">
+                                      {PLATFORM_LABELS[cfg.platform] ?? cfg.platform}
+                                    </span>
+                                    <span class={`rounded-full px-2 py-0.5 text-xs font-medium ${st.color}`}>
+                                      {st.label}
+                                    </span>
+                                    {cfg.initial_scrape_done && (
+                                      <span class="text-xs text-gray-400">
+                                        Ultimo: {cfg.last_scraped_at
+                                          ? new Date(cfg.last_scraped_at).toLocaleDateString("it-IT")
+                                          : "—"}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div class="mt-2 rounded border border-gray-100 bg-gray-50 px-3 py-2">
+                                    <div class="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                                      {fieldMeta.label}
+                                    </div>
+                                    {isEditingConfig ? (
+                                      <div class="mt-2 flex flex-wrap items-center gap-2">
+                                        <input
+                                          type={fieldMeta.inputType}
+                                          value={editingConfigValue}
+                                          onInput={(e) => setEditingConfigValue((e.target as HTMLInputElement).value)}
+                                          placeholder={fieldMeta.placeholder}
+                                          class="min-w-[20rem] flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm font-mono text-gray-700 focus:border-blue-500 focus:outline-none"
+                                        />
+                                        <button
+                                          type="button"
+                                          disabled={editingConfigSaving === cfg.id}
+                                          onClick={() => saveConfigSource(cfg)}
+                                          class="rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                                        >
+                                          {editingConfigSaving === cfg.id ? "..." : "Salva sorgente"}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={cancelConfigEditor}
+                                          class="rounded border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                                        >
+                                          Annulla
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div class="mt-1 flex items-start justify-between gap-3">
+                                        <code class="block whitespace-normal break-all text-xs text-gray-600">
+                                          {configValue || "—"}
+                                        </code>
+                                        <button
+                                          type="button"
+                                          onClick={() => openConfigEditor(cfg)}
+                                          class="shrink-0 rounded border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                                        >
+                                          Modifica sorgente
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div class="flex items-center gap-2">
+                                  <label class="cursor-pointer rounded border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50">
+                                    {isImporting ? "Import..." : "Importa recensioni"}
+                                    <input
+                                      type="file"
+                                      accept=".json,application/json"
+                                      class="hidden"
+                                      disabled={isImporting || isLoading}
+                                      onChange={(e) => {
+                                        const input = e.target as HTMLInputElement;
+                                        const file = input.files?.[0] ?? null;
+                                        void importReviewsFromJson(cfg.id, cfg.platform, file);
+                                        input.value = "";
+                                      }}
+                                    />
+                                  </label>
+                                  <button
+                                    type="button"
+                                    disabled={isLoading || isImporting || isScrapingConfigBusy(cfg.status)}
+                                    onClick={() => triggerScraping(loc.id, cfg)}
+                                    class="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                                  >
+                                    {isLoading ? "..." : "Avvia Scraping rapido"}
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           );

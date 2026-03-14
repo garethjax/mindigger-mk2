@@ -60,6 +60,33 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Reserve the config before calling the external provider so rapid duplicate clicks
+    // cannot enqueue the same platform twice.
+    const { data: reservedConfig, error: reserveErr } = await db
+      .from("scraping_configs")
+      .update({
+        status: "checking",
+        last_error: null,
+      })
+      .eq("id", config.id)
+      .not("status", "in", "(elaborating,checking)")
+      .select("id")
+      .maybeSingle();
+
+    if (reserveErr) {
+      return new Response(
+        JSON.stringify({ error: "Unable to reserve scraping config" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    if (!reservedConfig) {
+      return new Response(
+        JSON.stringify({ error: "Scraping already in progress", status: "checking" }),
+        { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     // Determine depth: initial (first time) vs recurring
     const isInitialScrape = !config.initial_scrape_done;
     const depth = isInitialScrape

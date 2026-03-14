@@ -1,8 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
   applyLocationUpdate,
+  buildScrapingConfigUpdatePayload,
   buildLocationUpdatePayload,
   formatFunctionInvokeError,
+  getToastDuration,
+  getScrapingConfigFieldMeta,
+  getScrapingConfigFieldValue,
+  isScrapingConfigBusy,
   type EditableLocation,
 } from "../helpers";
 
@@ -69,5 +74,45 @@ describe("location reclassification helpers", () => {
       },
       original[1],
     ]);
+  });
+});
+
+describe("scraping config helpers", () => {
+  test("resolves field metadata and preserves the full source reference", () => {
+    expect(getScrapingConfigFieldMeta("google_maps")).toEqual({
+      field: "place_id",
+      label: "Google Maps — Place ID",
+      inputType: "text",
+      placeholder: "ChIJ...",
+    });
+
+    expect(
+      getScrapingConfigFieldValue("tripadvisor", {
+        location_url: "https://www.tripadvisor.it/Restaurant_Review-example",
+      }),
+    ).toBe("https://www.tripadvisor.it/Restaurant_Review-example");
+  });
+
+  test("builds the minimal update payload for a scraping config", () => {
+    expect(
+      buildScrapingConfigUpdatePayload("booking", "  https://www.booking.com/hotel/it/example.html  "),
+    ).toEqual({
+      platform_config: {
+        location_url: "https://www.booking.com/hotel/it/example.html",
+      },
+    });
+  });
+
+  test("recognizes busy scraping states", () => {
+    expect(isScrapingConfigBusy("elaborating")).toBe(true);
+    expect(isScrapingConfigBusy("checking")).toBe(true);
+    expect(isScrapingConfigBusy("idle")).toBe(false);
+  });
+});
+
+describe("toast helpers", () => {
+  test("uses longer duration for errors than successes", () => {
+    expect(getToastDuration("ok")).toBe(4000);
+    expect(getToastDuration("err")).toBe(8000);
   });
 });
