@@ -1,4 +1,5 @@
 import { corsHeaders } from "../_shared/cors.ts";
+import { REVIEW_CLAIM_CHUNK_SIZE, chunkArray } from "../_shared/batching.ts";
 import { createAdminClient, requireInternalOrAdmin } from "../_shared/supabase.ts";
 
 /**
@@ -14,7 +15,6 @@ import { createAdminClient, requireInternalOrAdmin } from "../_shared/supabase.t
 
 const BATCH_LIMIT = 20_000;
 const STALE_HOURS = 24;
-const CLAIM_CHUNK_SIZE = 500;
 const SUBMIT_COOLDOWN_SECONDS = 45;
 
 // Inline provider logic to avoid cross-package import issues in Deno Edge Functions
@@ -96,14 +96,6 @@ const REVIEW_SCHEMA = {
 function sanitize(text: string | null | undefined): string {
   if (!text) return "";
   return text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
-}
-
-function chunkArray<T>(arr: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) {
-    chunks.push(arr.slice(i, i + size));
-  }
-  return chunks;
 }
 
 Deno.serve(async (req) => {
@@ -411,7 +403,7 @@ Deno.serve(async (req) => {
         // Mark reviews as analyzing
         const reviewIds = group.reviews.map((r) => r.id);
         const batchedAt = new Date().toISOString();
-        for (const ids of chunkArray(reviewIds, CLAIM_CHUNK_SIZE)) {
+        for (const ids of chunkArray(reviewIds, REVIEW_CLAIM_CHUNK_SIZE)) {
           const { error: claimErr } = await db
             .from("reviews")
             .update({ status: "analyzing", batched_at: batchedAt })

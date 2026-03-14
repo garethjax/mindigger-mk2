@@ -1,5 +1,6 @@
 import { useState } from "preact/hooks";
 import { createSupabaseBrowser } from "@/lib/supabase";
+import { buildBatchPollSummary } from "./ai-batch-poll-summary";
 
 interface AIConfig {
   id: string;
@@ -213,7 +214,7 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
     setMessage(null);
 
     const pollNames = ["analysis-poll", "swot-poll"] as const;
-    let totalPolledResults = 0;
+    const polledResults: Array<{ status?: string }> = [];
 
     try {
       for (const fnName of pollNames) {
@@ -228,8 +229,8 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
           throw new Error(`${fnName}: ${detail}`);
         }
 
-        const results = (data as { results?: unknown[] } | null)?.results ?? [];
-        totalPolledResults += results.length;
+        const results = (data as { results?: Array<{ status?: string }> } | null)?.results ?? [];
+        polledResults.push(...results);
       }
 
       const { data: refreshedBatches, error: refreshErr } = await supabase
@@ -245,7 +246,7 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
       setBatchRows(refreshedBatches ?? []);
       setMessage({
         type: "ok",
-        text: `Controllo status completato: ${totalPolledResults} batch verificati.`,
+        text: buildBatchPollSummary(polledResults),
       });
     } catch (err) {
       const detail = err instanceof Error ? err.message : "Errore durante il controllo status batch.";
