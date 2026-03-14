@@ -394,6 +394,9 @@ verify_jwt = false
 [functions.scraping-trigger]
 verify_jwt = false
 
+[functions.scraping-poll]
+verify_jwt = false
+
 [functions.scraping-import]
 verify_jwt = false
 

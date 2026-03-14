@@ -2,6 +2,12 @@ import { useState } from "preact/hooks";
 import { createSupabaseBrowser } from "@/lib/supabase";
 import { PLATFORM_DEFAULTS } from "@/lib/scraping-defaults";
 import PlaceFinder from "./PlaceFinder";
+import {
+  applyLocationUpdate,
+  buildLocationUpdatePayload,
+  formatFunctionInvokeError,
+  type EditableLocation,
+} from "./helpers";
 
 interface Business {
   id: string;
@@ -13,14 +19,7 @@ interface Business {
   embeddings_enabled: boolean;
 }
 
-interface Location {
-  id: string;
-  name: string;
-  is_competitor: boolean;
-  business_sector_id: string;
-  recurring_updates: boolean;
-  created_at: string;
-}
+interface Location extends EditableLocation {}
 
 interface ScrapingConfig {
   id: string;
@@ -167,6 +166,11 @@ export default function BusinessDetailView({
   const [newLocSector, setNewLocSector] = useState(sectors[0]?.id ?? "");
   const [newLocCompetitor, setNewLocCompetitor] = useState(false);
   const [addLoading, setAddLoading] = useState(false);
+  const [editingLocationId, setEditingLocationId] = useState<string | null>(null);
+  const [editingLocationName, setEditingLocationName] = useState("");
+  const [editingLocationSectorId, setEditingLocationSectorId] = useState("");
+  const [editingLocationCompetitor, setEditingLocationCompetitor] = useState(false);
+  const [locationSaving, setLocationSaving] = useState<string | null>(null);
 
   // Business edit state
   const [editingBusiness, setEditingBusiness] = useState(false);
@@ -250,12 +254,13 @@ export default function BusinessDetailView({
     setTriggerLoading(key);
     setMessage(null);
 
-    const { data, error } = await supabase.functions.invoke("scraping-trigger", {
+    const { error } = await supabase.functions.invoke("scraping-trigger", {
       body: { location_id: locationId, platform },
     });
 
     if (error) {
-      setMessage({ type: "err", text: `Errore trigger: ${error.message}` });
+      const detail = await formatFunctionInvokeError(error as { message: string; context?: Response });
+      setMessage({ type: "err", text: `Errore trigger: ${detail}` });
     } else {
       setMessage({ type: "ok", text: `Scraping avviato per ${PLATFORM_LABELS[platform] ?? platform}` });
     }
@@ -282,12 +287,7 @@ export default function BusinessDetailView({
       });
 
       if (error) {
-        let detail = error.message;
-        const context = (error as { context?: Response }).context;
-        if (context) {
-          const bodyText = await context.text().catch(() => "");
-          detail = `HTTP ${context.status}${bodyText ? ` - ${bodyText}` : ""}`;
-        }
+        const detail = await formatFunctionInvokeError(error as { message: string; context?: Response });
         setMessage({ type: "err", text: `Errore import: ${detail}` });
       } else {
         const inserted = Number(data?.inserted_reviews ?? 0);
@@ -314,12 +314,7 @@ export default function BusinessDetailView({
     });
 
     if (error) {
-      let detail = error.message;
-      const context = (error as { context?: Response }).context;
-      if (context) {
-        const bodyText = await context.text().catch(() => "");
-        detail = `HTTP ${context.status}${bodyText ? ` - ${bodyText}` : ""}`;
-      }
+      const detail = await formatFunctionInvokeError(error as { message: string; context?: Response });
       setMessage({ type: "err", text: `Pipeline AI (${locationName}): ${detail}` });
       setAnalysisLoading(null);
       return;
@@ -361,6 +356,52 @@ export default function BusinessDetailView({
         l.id === locationId ? { ...l, recurring_updates: !current } : l
       ));
     }
+  }
+
+  function openLocationEditor(location: Location) {
+    setEditingLocationId(location.id);
+    setEditingLocationName(location.name);
+    setEditingLocationSectorId(location.business_sector_id);
+    setEditingLocationCompetitor(location.is_competitor);
+    setMessage(null);
+  }
+
+  function cancelLocationEditor() {
+    setEditingLocationId(null);
+    setEditingLocationName("");
+    setEditingLocationSectorId("");
+    setEditingLocationCompetitor(false);
+  }
+
+  async function saveLocation(locationId: string) {
+    const payload = buildLocationUpdatePayload({
+      name: editingLocationName,
+      businessSectorId: editingLocationSectorId,
+      isCompetitor: editingLocationCompetitor,
+    });
+
+    if (!payload.name) {
+      setMessage({ type: "err", text: "Il nome location non può essere vuoto." });
+      return;
+    }
+
+    setLocationSaving(locationId);
+    setMessage(null);
+
+    const { error } = await supabase
+      .from("locations")
+      .update(payload)
+      .eq("id", locationId);
+
+    if (error) {
+      setMessage({ type: "err", text: `Errore location: ${error.message}` });
+    } else {
+      setLocations(applyLocationUpdate(locations, { id: locationId, ...payload }));
+      setMessage({ type: "ok", text: `Location "${payload.name}" aggiornata.` });
+      cancelLocationEditor();
+    }
+
+    setLocationSaving(null);
   }
 
   function openConfigForm(locationId: string) {
@@ -666,6 +707,7 @@ export default function BusinessDetailView({
             {locations.map((loc) => {
               const locConfigs = configsByLocation.get(loc.id) ?? [];
               const sector = sectors.find((s) => s.id === loc.business_sector_id);
+              const isEditingLocation = editingLocationId === loc.id;
 
               return (
                 <div
@@ -673,15 +715,71 @@ export default function BusinessDetailView({
                   class="rounded-lg border border-gray-100 bg-gray-50 p-4"
                 >
                   <div class="mb-2 flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                      <span class="font-medium text-gray-900">{loc.name}</span>
-                      {loc.is_competitor && (
-                        <span class="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700">
+                    {isEditingLocation ? (
+                      <div class="flex flex-wrap items-center gap-3">
+                        <input
+                          type="text"
+                          value={editingLocationName}
+                          onInput={(e) => setEditingLocationName((e.target as HTMLInputElement).value)}
+                          class="rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+                        />
+                        <select
+                          value={editingLocationSectorId}
+                          onChange={(e) => setEditingLocationSectorId((e.target as HTMLSelectElement).value)}
+                          class="rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+                        >
+                          {sectors.map((s) => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </select>
+                        <label class="flex items-center gap-1.5 text-sm text-gray-600">
+                          <input
+                            type="checkbox"
+                            checked={editingLocationCompetitor}
+                            onChange={(e) => setEditingLocationCompetitor((e.target as HTMLInputElement).checked)}
+                            class="rounded border-gray-300"
+                          />
                           Competitor
-                        </span>
-                      )}
-                    </div>
+                        </label>
+                      </div>
+                    ) : (
+                      <div class="flex items-center gap-2">
+                        <span class="font-medium text-gray-900">{loc.name}</span>
+                        {loc.is_competitor && (
+                          <span class="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700">
+                            Competitor
+                          </span>
+                        )}
+                      </div>
+                    )}
                     <div class="flex items-center gap-3">
+                      {isEditingLocation ? (
+                        <>
+                          <button
+                            type="button"
+                            disabled={locationSaving === loc.id}
+                            onClick={() => saveLocation(loc.id)}
+                            class="rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                          >
+                            {locationSaving === loc.id ? "..." : "Salva"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={cancelLocationEditor}
+                            class="rounded border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                          >
+                            Annulla
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => openLocationEditor(loc)}
+                          class="rounded border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                        >
+                          Modifica
+                        </button>
+                      )}
                       <label
                         class="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer"
                         title={loc.recurring_updates ? "Aggiornamento ricorrente attivo" : "Aggiornamento ricorrente disattivato"}

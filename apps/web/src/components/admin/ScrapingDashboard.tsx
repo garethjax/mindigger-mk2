@@ -1,5 +1,6 @@
 import { useState, useEffect } from "preact/hooks";
 import { createSupabaseBrowser } from "@/lib/supabase";
+import { formatFunctionInvokeError } from "./helpers";
 
 interface ScrapingConfig {
   id: string;
@@ -167,7 +168,8 @@ export default function ScrapingDashboard({ configs, profileMap }: Props) {
         body: {},
       });
       if (error) {
-        setMessage({ type: "err", text: `Errore polling: ${error.message}` });
+        const detail = await formatFunctionInvokeError(error as { message: string; context?: Response });
+        setMessage({ type: "err", text: `Errore polling: ${detail}` });
       } else {
         const results = data?.results ?? [];
         const completed = results.filter((r: { status: string }) => r.status === "completed").length;
