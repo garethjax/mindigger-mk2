@@ -7,6 +7,7 @@ function normalizeBatchPollStatus(status: string | undefined): "completed" | "pr
   if (status === "completed") return "completed";
   if (
     status === "still_processing" ||
+    status === "chunked" ||
     status === "locked_by_other" ||
     status === "lock_failed" ||
     status === "in_progress" ||
@@ -15,7 +16,13 @@ function normalizeBatchPollStatus(status: string | undefined): "completed" | "pr
   ) {
     return "processing";
   }
-  if (status === "failed" || status === "api_error" || status === "no_output_file" || status === "expired") {
+  if (
+    status === "failed" ||
+    status === "api_error" ||
+    status === "no_output_file" ||
+    status === "expired" ||
+    status.startsWith("error:")
+  ) {
     return "failed";
   }
   if (status === "cancelled") return "cancelled";

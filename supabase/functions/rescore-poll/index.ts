@@ -3,7 +3,6 @@ import { createAdminClient, requireInternalOrAdmin } from "../_shared/supabase.t
 import { chunkArray } from "../_shared/batching.ts";
 
 const OPENAI_API = "https://api.openai.com/v1";
-const CHUNK_SIZE = 200;
 
 type AiResult = {
   sentiment?: number;
@@ -118,14 +117,12 @@ Deno.serve(async (req: Request) => {
       const fileText = await fileRes.text();
       const lines = fileText.trim().split("\n");
       const totalLines = lines.length;
-      const offset = (metadata.processed_offset as number) ?? 0;
-      const chunk = lines.slice(offset, offset + CHUNK_SIZE);
 
-      // --- Parse chunk ---
+      // --- Parse all lines ---
       const parsed: { reviewId: string; scores: number[]; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; prompt_tokens_details?: { cached_tokens?: number } } }[] = [];
       const failedIds: string[] = [];
 
-      for (const line of chunk) {
+      for (const line of lines) {
         if (!line.trim()) continue;
         const obj = JSON.parse(line) as {
           custom_id: string;
@@ -249,22 +246,12 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      // --- Advance offset or mark complete ---
-      const newOffset = offset + chunk.length;
-      const allDone = newOffset >= totalLines;
-
-      if (allDone) {
-        await db.from("ai_batches").update({
-          status: "completed",
-          metadata: { ...metadata, processed_offset: newOffset, output_file_id: outputFileId, processing_lock: null },
-        }).eq("id", batchId);
-        results.push({ batch_id: batchId, status: "completed", fixed, total: totalLines });
-      } else {
-        await db.from("ai_batches").update({
-          metadata: { ...metadata, processed_offset: newOffset, output_file_id: outputFileId, processing_lock: null },
-        }).eq("id", batchId);
-        results.push({ batch_id: batchId, status: "chunked", fixed, total: totalLines, remaining: totalLines - newOffset });
-      }
+      // --- Mark complete ---
+      await db.from("ai_batches").update({
+        status: "completed",
+        metadata: { ...metadata, output_file_id: outputFileId, processing_lock: null },
+      }).eq("id", batchId);
+      results.push({ batch_id: batchId, status: "completed", fixed, failed: failedIds.length, total: totalLines });
     }
 
     return new Response(

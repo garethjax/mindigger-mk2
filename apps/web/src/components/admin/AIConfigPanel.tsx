@@ -101,6 +101,9 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
   const [batchRows, setBatchRows] = useState<Batch[]>(batches);
   const [rescoreLoading, setRescoreLoading] = useState(false);
   const [rescoreBusinessId, setRescoreBusinessId] = useState("");
+  const [rescoreBusinessName, setRescoreBusinessName] = useState("");
+  const [businessSuggestions, setBusinessSuggestions] = useState<{ id: string; name: string }[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   const supabase = createSupabaseBrowser();
 
@@ -249,11 +252,35 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
     }
   }
 
+  async function searchBusinesses(query: string) {
+    setRescoreBusinessName(query);
+    setRescoreBusinessId("");
+    if (!query.trim()) {
+      setBusinessSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    const { data } = await supabase
+      .from("businesses")
+      .select("id, name")
+      .ilike("name", `%${query}%`)
+      .limit(8);
+    setBusinessSuggestions(data ?? []);
+    setShowSuggestions(true);
+  }
+
+  function selectBusiness(b: { id: string; name: string }) {
+    setRescoreBusinessId(b.id);
+    setRescoreBusinessName(b.name);
+    setBusinessSuggestions([]);
+    setShowSuggestions(false);
+  }
+
   async function runBatchPoll() {
     setBatchPollLoading(true);
     setMessage(null);
 
-    const pollNames = ["analysis-poll", "swot-poll"] as const;
+    const pollNames = ["analysis-poll", "swot-poll", "rescore-poll"] as const;
     const polledResults: Array<{ status?: string }> = [];
 
     try {
@@ -739,13 +766,40 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
               all'LLM (batch, basso costo) per correggere solo i punteggi dei topic.
             </p>
             <div class="flex items-center gap-2">
-              <input
-                type="text"
-                placeholder="business_id (opzionale — vuoto = tutti)"
-                value={rescoreBusinessId}
-                onInput={(e) => setRescoreBusinessId((e.target as HTMLInputElement).value)}
-                class="flex-1 rounded border border-amber-300 bg-white px-2 py-1.5 text-xs focus:border-amber-500 focus:outline-none"
-              />
+              <div class="relative flex-1">
+                <input
+                  type="text"
+                  placeholder="Cerca business (vuoto = tutti)"
+                  value={rescoreBusinessName}
+                  onInput={(e) => searchBusinesses((e.target as HTMLInputElement).value)}
+                  onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                  onFocus={() => businessSuggestions.length > 0 && setShowSuggestions(true)}
+                  class="w-full rounded border border-amber-300 bg-white px-2 py-1.5 text-xs focus:border-amber-500 focus:outline-none"
+                />
+                {rescoreBusinessId && (
+                  <button
+                    type="button"
+                    onClick={() => { setRescoreBusinessId(""); setRescoreBusinessName(""); }}
+                    class="absolute right-1.5 top-1/2 -translate-y-1/2 text-amber-400 hover:text-amber-700"
+                  >
+                    ×
+                  </button>
+                )}
+                {showSuggestions && businessSuggestions.length > 0 && (
+                  <div class="absolute left-0 top-full z-10 mt-1 w-full rounded border border-amber-200 bg-white shadow-md">
+                    {businessSuggestions.map((b) => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onMouseDown={() => selectBusiness(b)}
+                        class="block w-full px-3 py-2 text-left text-xs text-gray-700 hover:bg-amber-50"
+                      >
+                        {b.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <button
                 type="button"
                 disabled={rescoreLoading}

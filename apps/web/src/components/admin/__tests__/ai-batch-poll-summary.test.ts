@@ -7,7 +7,7 @@ describe("buildBatchPollSummary", () => {
       buildBatchPollSummary([
         { status: "still_processing" },
         { status: "locked_by_other" },
-        { status: "still_processing" },
+        { status: "chunked" },
         { status: "validating" },
       ]),
     ).toBe("Controllo status completato: 4 ancora in corso.");
@@ -22,5 +22,14 @@ describe("buildBatchPollSummary", () => {
         { status: "still_processing" },
       ]),
     ).toBe("Controllo status completato: 1 completati, 1 ancora in corso, 1 con errore, 1 cancellati.");
+  });
+
+  test("treats prefixed error statuses as failures", () => {
+    expect(
+      buildBatchPollSummary([
+        { status: "completed" },
+        { status: "error: File download failed: 500" },
+      ]),
+    ).toBe("Controllo status completato: 1 completati, 1 con errore.");
   });
 });
