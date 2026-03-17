@@ -12,6 +12,7 @@ const { data: locations } = businessId
       .from("locations")
       .select("id, name, is_competitor, business_sector_id")
       .eq("business_id", businessId)
+      .eq("is_competitor", false)
       .order("name")
   : { data: [] };
 

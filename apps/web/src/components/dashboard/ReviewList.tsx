@@ -55,11 +55,12 @@ function toSafeExternalUrl(url: string | null): string | null {
 interface Props {
   filters: FilterState;
   businessId: string;
+  locationIds: string[];
 }
 
 const PAGE_SIZE = 20;
 
-export default function ReviewList({ filters, businessId }: Props) {
+export default function ReviewList({ filters, businessId, locationIds }: Props) {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
@@ -86,7 +87,11 @@ export default function ReviewList({ filters, businessId }: Props) {
       .order("review_date", { ascending: false })
       .range(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE - 1);
 
-    if (filters.locationId) query = query.eq("location_id", filters.locationId);
+    if (filters.locationId) {
+      query = query.eq("location_id", filters.locationId);
+    } else {
+      query = query.in("location_id", locationIds);
+    }
     if (filters.categoryId) query = query.eq("review_categories.category_id", filters.categoryId);
     if (filters.source) query = query.eq("source", filters.source);
     if (filters.dateFrom) query = query.gte("review_date", filters.dateFrom);

@@ -96,7 +96,11 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
       .eq("business_id", businessId)
       .limit(50000);
 
-    if (filters.locationId) query = query.eq("location_id", filters.locationId);
+    if (filters.locationId) {
+      query = query.eq("location_id", filters.locationId);
+    } else {
+      query = query.in("location_id", locations.map((l) => l.id));
+    }
     if (filters.categoryId) query = query.eq("review_categories.category_id", filters.categoryId);
     if (filters.source) query = query.eq("source", filters.source);
     if (filters.dateFrom) query = query.gte("review_date", filters.dateFrom);
@@ -130,6 +134,7 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
     const { data, error } = await supabase.rpc("reviews_by_period", {
       p_business_id: businessId,
       p_location_id: filters.locationId ?? undefined,
+      p_location_ids: filters.locationId ? undefined : locations.map((l) => l.id),
       p_date_from: filters.dateFrom || undefined,
       p_date_to: filters.dateTo || undefined,
       p_source: filters.source ?? undefined,
@@ -205,7 +210,7 @@ export default function Dashboard({ locations, categories = [], businessId, isCo
         />
       </div>
 
-      <ReviewList filters={filters} businessId={businessId} />
+      <ReviewList filters={filters} businessId={businessId} locationIds={locations.map((l) => l.id)} />
     </div>
   );
 }
