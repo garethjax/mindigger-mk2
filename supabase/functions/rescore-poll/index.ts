@@ -249,7 +249,7 @@ Deno.serve(async (req: Request) => {
       // --- Mark complete ---
       await db.from("ai_batches").update({
         status: "completed",
-        metadata: { ...metadata, output_file_id: outputFileId, processing_lock: null },
+        metadata: { ...metadata, output_file_id: outputFileId, processing_lock: null, fixed, failed: failedIds.length },
       }).eq("id", batchId);
       results.push({ batch_id: batchId, status: "completed", fixed, failed: failedIds.length, total: totalLines });
     }

@@ -1,4 +1,4 @@
-import { useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { createSupabaseBrowser } from "@/lib/supabase";
 import { buildBatchPollSummary } from "./ai-batch-poll-summary";
 
@@ -25,6 +25,15 @@ interface TokenUsageRow {
   businesses: { name: string } | null;
 }
 
+interface BatchMetadata {
+  business_id?: string;
+  review_count?: number;
+  model?: string;
+  fixed?: number;
+  failed?: number;
+  [key: string]: unknown;
+}
+
 interface Batch {
   id: string;
   external_batch_id: string;
@@ -33,6 +42,7 @@ interface Batch {
   status: string;
   created_at: string;
   updated_at: string;
+  metadata?: BatchMetadata;
 }
 
 interface PricingRow {
@@ -104,8 +114,44 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
   const [rescoreBusinessName, setRescoreBusinessName] = useState("");
   const [businessSuggestions, setBusinessSuggestions] = useState<{ id: string; name: string }[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [businessNames, setBusinessNames] = useState<Map<string, string>>(new Map());
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const supabase = createSupabaseBrowser();
+
+  // Load business names for batch metadata on mount
+  useEffect(() => {
+    const ids = new Set<string>();
+    for (const b of batches) {
+      const bid = (b.metadata as BatchMetadata | undefined)?.business_id;
+      if (bid) ids.add(bid);
+    }
+    if (ids.size === 0) return;
+    supabase
+      .from("businesses")
+      .select("id, name")
+      .in("id", [...ids])
+      .then(({ data }) => {
+        const m = new Map<string, string>();
+        for (const row of data ?? []) m.set(row.id, row.name);
+        setBusinessNames(m);
+      });
+  }, []);
+
+  async function refreshBusinessNames(rows: Batch[]) {
+    const ids = new Set<string>();
+    for (const b of rows) {
+      const bid = b.metadata?.business_id;
+      if (bid && !businessNames.has(bid)) ids.add(bid);
+    }
+    if (ids.size === 0) return;
+    const { data } = await supabase.from("businesses").select("id, name").in("id", [...ids]);
+    setBusinessNames((prev) => {
+      const next = new Map(prev);
+      for (const row of data ?? []) next.set(row.id, row.name);
+      return next;
+    });
+  }
 
   function startEdit(cfg: AIConfig) {
     setEditingId(cfg.id);
@@ -215,6 +261,9 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
   }
 
   async function runRescore() {
+    if (!rescoreBusinessId.trim()) {
+      if (!confirm("Nessun business selezionato: il re-score partira' su TUTTI i business. Continuare?")) return;
+    }
     setRescoreLoading(true);
     setMessage(null);
     try {
@@ -236,10 +285,11 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
         await supabase.functions.invoke("rescore-poll", { body: {} });
         const { data: refreshedBatches } = await supabase
           .from("ai_batches")
-          .select("id, external_batch_id, provider, batch_type, status, created_at, updated_at")
+          .select("id, external_batch_id, provider, batch_type, status, created_at, updated_at, metadata")
           .order("created_at", { ascending: false })
           .limit(50);
         setBatchRows(refreshedBatches ?? []);
+        refreshBusinessNames(refreshedBatches ?? []);
         setMessage({
           type: "ok",
           text: `Re-score avviato: ${result.submitted} recensioni in elaborazione (batch ${result.external_batch_id?.slice(0, 16)}…).`,
@@ -252,21 +302,24 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
     }
   }
 
-  async function searchBusinesses(query: string) {
+  function searchBusinesses(query: string) {
     setRescoreBusinessName(query);
     setRescoreBusinessId("");
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!query.trim()) {
       setBusinessSuggestions([]);
       setShowSuggestions(false);
       return;
     }
-    const { data } = await supabase
-      .from("businesses")
-      .select("id, name")
-      .ilike("name", `%${query}%`)
-      .limit(8);
-    setBusinessSuggestions(data ?? []);
-    setShowSuggestions(true);
+    debounceRef.current = setTimeout(async () => {
+      const { data } = await supabase
+        .from("businesses")
+        .select("id, name")
+        .ilike("name", `%${query}%`)
+        .limit(8);
+      setBusinessSuggestions(data ?? []);
+      setShowSuggestions(true);
+    }, 300);
   }
 
   function selectBusiness(b: { id: string; name: string }) {
@@ -302,7 +355,7 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
 
       const { data: refreshedBatches, error: refreshErr } = await supabase
         .from("ai_batches")
-        .select("id, external_batch_id, provider, batch_type, status, created_at, updated_at")
+        .select("id, external_batch_id, provider, batch_type, status, created_at, updated_at, metadata")
         .order("created_at", { ascending: false })
         .limit(50);
 
@@ -311,6 +364,7 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
       }
 
       setBatchRows(refreshedBatches ?? []);
+      refreshBusinessNames(refreshedBatches ?? []);
       setMessage({
         type: "ok",
         text: buildBatchPollSummary(polledResults),
@@ -826,11 +880,11 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
             <thead class="bg-gray-50">
               <tr>
                 <th class="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Batch ID</th>
-                <th class="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Provider</th>
+                <th class="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Business</th>
                 <th class="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Tipo</th>
                 <th class="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Status</th>
+                <th class="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Dettagli</th>
                 <th class="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Creato</th>
-                <th class="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Aggiornato</th>
                 <th class="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Azioni</th>
               </tr>
             </thead>
@@ -842,7 +896,11 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
                     <td class="px-4 py-2 font-mono text-xs text-gray-600">
                       {b.external_batch_id.slice(0, 20)}…
                     </td>
-                    <td class="px-4 py-2 text-xs text-gray-600">{b.provider}</td>
+                    <td class="px-4 py-2 text-xs text-gray-600">
+                      {b.metadata?.business_id
+                        ? businessNames.get(b.metadata.business_id) ?? b.metadata.business_id.slice(0, 8) + "…"
+                        : <span class="text-gray-400">tutti</span>}
+                    </td>
                     <td class="px-4 py-2 text-xs text-gray-500">{b.batch_type}</td>
                     <td class="px-4 py-2">
                       <span class={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColor}`}>
@@ -850,10 +908,18 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
                       </span>
                     </td>
                     <td class="px-4 py-2 text-xs text-gray-500">
-                      {new Date(b.created_at).toLocaleString("it-IT")}
+                      {b.metadata?.review_count != null && (
+                        <span>{b.metadata.review_count} review</span>
+                      )}
+                      {b.status === "completed" && b.metadata?.fixed != null && (
+                        <span class="ml-1 text-green-600">({b.metadata.fixed} corrette)</span>
+                      )}
+                      {b.status === "completed" && (b.metadata?.failed as number) > 0 && (
+                        <span class="ml-1 text-red-500">({b.metadata!.failed} errori)</span>
+                      )}
                     </td>
                     <td class="px-4 py-2 text-xs text-gray-500">
-                      {new Date(b.updated_at).toLocaleString("it-IT")}
+                      {new Date(b.created_at).toLocaleString("it-IT")}
                     </td>
                     <td class="px-4 py-2">
                       <div class="flex flex-wrap gap-2">

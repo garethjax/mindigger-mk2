@@ -14,7 +14,7 @@ const [configsRes, tokenRes, batchesRes, pricingRes, balanceRes] = await Promise
     .limit(500),
   supabase
     .from("ai_batches")
-    .select("id, external_batch_id, provider, batch_type, status, created_at, updated_at")
+    .select("id, external_batch_id, provider, batch_type, status, created_at, updated_at, metadata")
     .order("created_at", { ascending: false })
     .limit(50),
   supabase
