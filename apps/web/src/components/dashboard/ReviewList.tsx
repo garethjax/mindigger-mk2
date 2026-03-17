@@ -72,9 +72,9 @@ export default function ReviewList({ filters, businessId, locationIds }: Props) 
   const ratingsKey = ratings.join(",");
   const filterAllRatings = ratings.length === 5;
 
-  async function loadReviews(reset = false) {
+  async function loadReviews(reset = false, pageOverride?: number) {
     setLoading(true);
-    const currentPage = reset ? 0 : page;
+    const currentPage = reset ? 0 : (pageOverride ?? page);
 
     const selectFields = filters.categoryId
       ? "id, title, text, rating, author, source, url, review_date, ai_result, review_categories!inner(category_id)"
@@ -114,8 +114,9 @@ export default function ReviewList({ filters, businessId, locationIds }: Props) 
   }, [businessId, filters.locationId, filters.categoryId, filters.source, filters.dateFrom, filters.dateTo, ratingsKey]);
 
   function loadMore() {
-    setPage((p) => p + 1);
-    loadReviews();
+    const nextPage = page + 1;
+    setPage(nextPage);
+    loadReviews(false, nextPage);
   }
 
   function renderStars(rating: number | null) {
