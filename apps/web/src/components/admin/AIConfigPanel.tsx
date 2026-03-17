@@ -99,6 +99,8 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
   const [batchActionLoading, setBatchActionLoading] = useState<string | null>(null);
   const [batchPollLoading, setBatchPollLoading] = useState(false);
   const [batchRows, setBatchRows] = useState<Batch[]>(batches);
+  const [rescoreLoading, setRescoreLoading] = useState(false);
+  const [rescoreBusinessId, setRescoreBusinessId] = useState("");
 
   const supabase = createSupabaseBrowser();
 
@@ -207,6 +209,44 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
       return { ...row, status: nextStatus ?? row.status, updated_at: now };
     }));
     setBatchActionLoading(null);
+  }
+
+  async function runRescore() {
+    setRescoreLoading(true);
+    setMessage(null);
+    try {
+      const body: Record<string, string> = {};
+      if (rescoreBusinessId.trim()) body.business_id = rescoreBusinessId.trim();
+
+      const { data, error } = await supabase.functions.invoke("rescore-submit", { body });
+      if (error) {
+        const context = (error as { context?: Response }).context;
+        const bodyText = context ? await context.text().catch(() => "") : "";
+        throw new Error(`HTTP ${context?.status ?? "?"} - ${bodyText || error.message}`);
+      }
+
+      const result = data as { submitted: number; message?: string; external_batch_id?: string };
+      if (result.submitted === 0) {
+        setMessage({ type: "ok", text: result.message ?? "Nessuna recensione inconsistente trovata." });
+      } else {
+        // Immediately trigger a poll cycle so the new batch appears
+        await supabase.functions.invoke("rescore-poll", { body: {} });
+        const { data: refreshedBatches } = await supabase
+          .from("ai_batches")
+          .select("id, external_batch_id, provider, batch_type, status, created_at, updated_at")
+          .order("created_at", { ascending: false })
+          .limit(50);
+        setBatchRows(refreshedBatches ?? []);
+        setMessage({
+          type: "ok",
+          text: `Re-score avviato: ${result.submitted} recensioni in elaborazione (batch ${result.external_batch_id?.slice(0, 16)}…).`,
+        });
+      }
+    } catch (err) {
+      setMessage({ type: "err", text: err instanceof Error ? err.message : "Errore re-score." });
+    } finally {
+      setRescoreLoading(false);
+    }
   }
 
   async function runBatchPoll() {
@@ -686,6 +726,37 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
       {/* Batches tab */}
       {tab === "batches" && (
         <div class="space-y-3">
+          {/* Re-score panel */}
+          <div class="rounded-lg border border-amber-200 bg-amber-50/60 p-4">
+            <div class="mb-2 flex items-center gap-2">
+              <span class="text-sm font-semibold text-amber-800">Re-score semantico</span>
+              <span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">
+                admin only
+              </span>
+            </div>
+            <p class="mb-3 text-xs text-amber-700">
+              Rileva le recensioni con score incoerenti rispetto al sentiment globale e le rimanda
+              all'LLM (batch, basso costo) per correggere solo i punteggi dei topic.
+            </p>
+            <div class="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="business_id (opzionale — vuoto = tutti)"
+                value={rescoreBusinessId}
+                onInput={(e) => setRescoreBusinessId((e.target as HTMLInputElement).value)}
+                class="flex-1 rounded border border-amber-300 bg-white px-2 py-1.5 text-xs focus:border-amber-500 focus:outline-none"
+              />
+              <button
+                type="button"
+                disabled={rescoreLoading}
+                onClick={runRescore}
+                class="rounded bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {rescoreLoading ? "Avvio..." : "Avvia Re-score"}
+              </button>
+            </div>
+          </div>
+
           <div class="flex justify-end">
             <button
               type="button"

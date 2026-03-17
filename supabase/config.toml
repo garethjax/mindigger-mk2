@@ -403,6 +403,12 @@ verify_jwt = false
 [functions.botster-credits]
 verify_jwt = false
 
+[functions.rescore-submit]
+verify_jwt = false
+
+[functions.rescore-poll]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327
