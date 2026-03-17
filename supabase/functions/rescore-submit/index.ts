@@ -3,8 +3,7 @@ import { createAdminClient, requireInternalOrAdmin } from "../_shared/supabase.t
 
 const OPENAI_API = "https://api.openai.com/v1";
 
-// Change after playground testing — user is evaluating gpt-4o-mini vs gpt-4.1
-const RESCORE_MODEL = "gpt-4o-mini";
+const RESCORE_MODEL = "gpt-4.1";
 
 const BATCH_LIMIT = 5_000;
 
