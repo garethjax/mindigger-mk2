@@ -1,4 +1,5 @@
 import { corsHeaders } from "../_shared/cors.ts";
+import { uploadJSONL, createOpenAIBatch, insertBatchRecord } from "../_shared/batch-submission.ts";
 import { createAdminClient, isInternalRequest, requireAuthenticated } from "../_shared/supabase.ts";
 import { trackTokenUsage } from "../_shared/token-usage.ts";
 
@@ -211,42 +212,18 @@ Deno.serve(async (req) => {
         },
       };
 
-      const jsonl = JSON.stringify(line) + "\n";
-      const blob = new Blob([jsonl], { type: "application/jsonl" });
-      const form = new FormData();
-      form.append("file", blob, "swot-batch.jsonl");
-      form.append("purpose", "batch");
+      // Upload JSONL, create batch, and track in ai_batches
+      const fileId = await uploadJSONL([JSON.stringify(line)], apiKey);
+      const batchData = await createOpenAIBatch(
+        fileId,
+        apiKey,
+        { batch_type: "SWOT", swot_id: swot.id },
+      );
 
-      const uploadRes = await fetch(`${OPENAI_API}/files`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}` },
-        body: form,
-      });
-      if (!uploadRes.ok) throw new Error(`File upload failed: ${await uploadRes.text()}`);
-      const fileData = await uploadRes.json();
-
-      const batchRes = await fetch(`${OPENAI_API}/batches`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          input_file_id: fileData.id,
-          endpoint: "/v1/chat/completions",
-          completion_window: "24h",
-          metadata: { batch_type: "SWOT", swot_id: swot.id },
-        }),
-      });
-      if (!batchRes.ok) throw new Error(`Batch create failed: ${await batchRes.text()}`);
-      const batchData = await batchRes.json();
-
-      // Save batch tracking
-      await db.from("ai_batches").insert({
-        external_batch_id: batchData.id,
+      await insertBatchRecord(db, {
+        externalBatchId: batchData.id,
         provider: aiConfig.provider,
-        batch_type: "swot",
-        status: "in_progress",
+        batchType: "swot",
         metadata: { swot_id: swot.id, review_count: reviews.length },
       });
 

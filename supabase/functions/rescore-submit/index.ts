@@ -1,7 +1,6 @@
 import { corsHeaders } from "../_shared/cors.ts";
+import { uploadJSONL, createOpenAIBatch, insertBatchRecord } from "../_shared/batch-submission.ts";
 import { createAdminClient, requireInternalOrAdmin } from "../_shared/supabase.ts";
-
-const OPENAI_API = "https://api.openai.com/v1";
 
 const RESCORE_MODEL = "gpt-4.1";
 
@@ -128,52 +127,18 @@ Deno.serve(async (req: Request) => {
         }),
       );
     }
-    const jsonl = lines.join("\n") + "\n";
+    // Upload JSONL, create batch, and track in ai_batches
+    const fileId = await uploadJSONL(lines, apiKey);
+    const batchData = await createOpenAIBatch(
+      fileId,
+      apiKey,
+      { batch_type: "RESCORE" },
+    );
 
-    // --- Upload file to OpenAI ---
-    const blob = new Blob([jsonl], { type: "application/jsonl" });
-    const form = new FormData();
-    form.append("file", blob, "rescore.jsonl");
-    form.append("purpose", "batch");
-
-    const uploadRes = await fetch(`${OPENAI_API}/files`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}` },
-      body: form,
-    });
-    const fileData = await uploadRes.json() as { id?: string };
-    if (!fileData.id) {
-      return new Response(
-        JSON.stringify({ error: "File upload failed", detail: fileData }),
-        { status: 502 },
-      );
-    }
-
-    // --- Create batch ---
-    const batchRes = await fetch(`${OPENAI_API}/batches`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        input_file_id: fileData.id,
-        endpoint: "/v1/chat/completions",
-        completion_window: "24h",
-        metadata: { batch_type: "RESCORE" },
-      }),
-    });
-    const batchData = await batchRes.json() as { id?: string };
-    if (!batchData.id) {
-      return new Response(
-        JSON.stringify({ error: "Batch creation failed", detail: batchData }),
-        { status: 502 },
-      );
-    }
-
-    // --- Track in ai_batches ---
-    const { error: insertErr } = await db.from("ai_batches").insert({
-      external_batch_id: batchData.id,
+    await insertBatchRecord(db, {
+      externalBatchId: batchData.id,
       provider: "openai",
-      batch_type: "rescore",
-      status: "in_progress",
+      batchType: "rescore",
       metadata: {
         review_count: candidates.length,
         business_id: business_id ?? null,
@@ -181,9 +146,6 @@ Deno.serve(async (req: Request) => {
         model: RESCORE_MODEL,
       },
     });
-    if (insertErr) {
-      return new Response(JSON.stringify({ error: insertErr.message }), { status: 500 });
-    }
 
     return new Response(
       JSON.stringify({ submitted: candidates.length, external_batch_id: batchData.id }),

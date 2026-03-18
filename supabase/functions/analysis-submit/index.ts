@@ -1,5 +1,6 @@
 import { corsHeaders } from "../_shared/cors.ts";
 import { REVIEW_CLAIM_CHUNK_SIZE, chunkArray } from "../_shared/batching.ts";
+import { uploadJSONL, createOpenAIBatch, insertBatchRecord } from "../_shared/batch-submission.ts";
 import { createAdminClient, requireInternalOrAdmin } from "../_shared/supabase.ts";
 import { trackTokenUsage } from "../_shared/token-usage.ts";
 
@@ -18,7 +19,6 @@ const BATCH_LIMIT = 20_000;
 const STALE_HOURS = 24;
 const SUBMIT_COOLDOWN_SECONDS = 45;
 
-// Inline provider logic to avoid cross-package import issues in Deno Edge Functions
 const OPENAI_API = "https://api.openai.com/v1";
 
 function formatCategoryList(categoryNames: string[]): string {
@@ -352,48 +352,21 @@ Deno.serve(async (req) => {
           lines.push(JSON.stringify(line));
         }
 
-        const jsonl = lines.join("\n") + "\n";
+        // Upload JSONL, create batch, and track in ai_batches
+        const fileId = await uploadJSONL(lines, apiKey!);
+        const batchData = await createOpenAIBatch(
+          fileId,
+          apiKey!,
+          { batch_type: "REVIEWS", sector: sectorId },
+        );
 
-        // Upload file
-        const blob = new Blob([jsonl], { type: "application/jsonl" });
-        const form = new FormData();
-        form.append("file", blob, "batch.jsonl");
-        form.append("purpose", "batch");
-
-        const uploadRes = await fetch(`${OPENAI_API}/files`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${apiKey}` },
-          body: form,
-        });
-        if (!uploadRes.ok) throw new Error(`File upload failed: ${await uploadRes.text()}`);
-        const fileData = await uploadRes.json();
-
-        // Create batch
-        const batchRes = await fetch(`${OPENAI_API}/batches`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            input_file_id: fileData.id,
-            endpoint: "/v1/chat/completions",
-            completion_window: "24h",
-            metadata: { batch_type: "REVIEWS", sector: sectorId },
-          }),
-        });
-        if (!batchRes.ok) throw new Error(`Batch create failed: ${await batchRes.text()}`);
-        const batchData = await batchRes.json();
-
-        // Save batch tracking
         const locationIdForBatch = group.reviews[0]?.location_id ?? null;
         const businessIdForBatch = group.reviews[0]?.business_id ?? null;
 
-        const { error: batchInsertErr } = await db.from("ai_batches").insert({
-          external_batch_id: batchData.id,
+        await insertBatchRecord(db, {
+          externalBatchId: batchData.id,
           provider: aiConfig.provider,
-          batch_type: "reviews",
-          status: "in_progress",
+          batchType: "reviews",
           metadata: {
             sector_id: sectorId,
             review_count: group.reviews.length,
@@ -402,7 +375,6 @@ Deno.serve(async (req) => {
             scope: targetLocationId ? "location" : "global",
           },
         });
-        if (batchInsertErr) throw batchInsertErr;
 
         batchIds.push(batchData.id);
         totalSubmitted += group.reviews.length;
