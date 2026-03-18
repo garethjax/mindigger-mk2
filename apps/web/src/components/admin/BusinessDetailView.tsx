@@ -1,6 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { createSupabaseBrowser } from "@/lib/supabase";
 import { PLATFORM_DEFAULTS } from "@/lib/scraping-defaults";
+import BusinessEditor from "./BusinessEditor";
 import PlaceFinder from "./PlaceFinder";
 import {
   applyLocationUpdate,
@@ -177,15 +178,6 @@ export default function BusinessDetailView({
   const [editingLocationCompetitor, setEditingLocationCompetitor] = useState(false);
   const [locationSaving, setLocationSaving] = useState<string | null>(null);
 
-  // Business edit state
-  const [editingBusiness, setEditingBusiness] = useState(false);
-  const [bizName, setBizName] = useState(business.name);
-  const [bizType, setBizType] = useState(business.type);
-  const [bizRagioneSociale, setBizRagioneSociale] = useState(business.ragione_sociale ?? "");
-  const [bizEmail, setBizEmail] = useState(business.email ?? "");
-  const [bizReferente, setBizReferente] = useState(business.referente_nome ?? "");
-  const [bizSaving, setBizSaving] = useState(false);
-
   // Scraping config form state
   const [configuringLocationId, setConfiguringLocationId] = useState<string | null>(null);
   const [platformFields, setPlatformFields] = useState<PlatformFields>({ ...INITIAL_PLATFORM_FIELDS });
@@ -210,31 +202,6 @@ export default function BusinessDetailView({
     }, getToastDuration(message.type));
     return () => window.clearTimeout(timeoutId);
   }, [message]);
-
-  async function saveBusiness(e: Event) {
-    e.preventDefault();
-    setBizSaving(true);
-    setMessage(null);
-
-    const { error } = await supabase
-      .from("businesses")
-      .update({
-        name: bizName.trim(),
-        type: bizType,
-        ragione_sociale: bizRagioneSociale.trim() || null,
-        email: bizEmail.trim() || null,
-        referente_nome: bizReferente.trim() || null,
-      })
-      .eq("id", business.id);
-
-    if (error) {
-      setMessage({ type: "err", text: `Errore: ${error.message}` });
-    } else {
-      setMessage({ type: "ok", text: "Dati azienda aggiornati" });
-      setEditingBusiness(false);
-    }
-    setBizSaving(false);
-  }
 
   async function addLocation(e: Event) {
     e.preventDefault();
@@ -572,141 +539,15 @@ export default function BusinessDetailView({
 
   return (
     <div class="space-y-6">
-      {/* Dati Azienda */}
-      <div class="rounded-lg border border-gray-200 bg-white p-6">
-        <div class="mb-3 flex items-center justify-between">
-          <h2 class="text-sm font-bold uppercase tracking-wide text-gray-500">Dati Azienda</h2>
-          {!editingBusiness && (
-            <button
-              type="button"
-              onClick={() => setEditingBusiness(true)}
-              class="text-xs font-medium text-blue-600 hover:text-blue-800"
-            >
-              Modifica
-            </button>
-          )}
-        </div>
-
-        {editingBusiness ? (
-          <form onSubmit={saveBusiness} class="space-y-3">
-            <div class="grid grid-cols-2 gap-3">
-              <div>
-                <label class="mb-1 block text-xs font-medium text-gray-500">Nome</label>
-                <input
-                  type="text"
-                  required
-                  value={bizName}
-                  onInput={(e) => setBizName((e.target as HTMLInputElement).value)}
-                  class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label class="mb-1 block text-xs font-medium text-gray-500">Tipo</label>
-                <select
-                  value={bizType}
-                  onChange={(e) => setBizType((e.target as HTMLSelectElement).value)}
-                  class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-                >
-                  <option value="organization">Organization</option>
-                  <option value="restaurant">Restaurant</option>
-                  <option value="hotel">Hotel</option>
-                </select>
-              </div>
-              <div>
-                <label class="mb-1 block text-xs font-medium text-gray-500">Ragione Sociale</label>
-                <input
-                  type="text"
-                  value={bizRagioneSociale}
-                  onInput={(e) => setBizRagioneSociale((e.target as HTMLInputElement).value)}
-                  class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label class="mb-1 block text-xs font-medium text-gray-500">Email</label>
-                <input
-                  type="email"
-                  value={bizEmail}
-                  onInput={(e) => setBizEmail((e.target as HTMLInputElement).value)}
-                  class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label class="mb-1 block text-xs font-medium text-gray-500">Referente</label>
-                <input
-                  type="text"
-                  value={bizReferente}
-                  onInput={(e) => setBizReferente((e.target as HTMLInputElement).value)}
-                  class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-            </div>
-            <div class="flex gap-2">
-              <button
-                type="submit"
-                disabled={bizSaving}
-                class="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                {bizSaving ? "..." : "Salva"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingBusiness(false);
-                  setBizName(business.name);
-                  setBizType(business.type);
-                  setBizRagioneSociale(business.ragione_sociale ?? "");
-                  setBizEmail(business.email ?? "");
-                  setBizReferente(business.referente_nome ?? "");
-                }}
-                class="rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
-              >
-                Annulla
-              </button>
-            </div>
-          </form>
-        ) : (
-          <div class="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <span class="text-gray-400">Nome:</span>{" "}
-              <span class="font-medium">{bizName}</span>
-            </div>
-            <div>
-              <span class="text-gray-400">Tipo:</span> {bizType}
-            </div>
-            {bizRagioneSociale && (
-              <div>
-                <span class="text-gray-400">Ragione Sociale:</span>{" "}
-                <span class="font-medium">{bizRagioneSociale}</span>
-              </div>
-            )}
-            {bizEmail && (
-              <div>
-                <span class="text-gray-400">Email:</span> {bizEmail}
-              </div>
-            )}
-            {bizReferente && (
-              <div>
-                <span class="text-gray-400">Referente:</span> {bizReferente}
-              </div>
-            )}
-            <div>
-              <span class="text-gray-400">Utenti:</span> {usersLabel}
-            </div>
-            <div>
-              <span class="text-gray-400">Recensioni totali:</span>{" "}
-              <span class="font-medium">{reviewCount}</span>
-            </div>
-            <div>
-              <span class="text-gray-400">Embeddings:</span>{" "}
-              {business.embeddings_enabled ? (
-                <span class="text-purple-600 font-medium">Attivi</span>
-              ) : (
-                <span class="text-gray-400">Disattivati</span>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+      <BusinessEditor
+        business={business}
+        usersLabel={usersLabel}
+        reviewCount={reviewCount}
+        onSave={() => {
+          // Business data saved — parent can refresh if needed
+        }}
+        onMessage={setMessage}
+      />
 
       {message && (
         <div class="pointer-events-none fixed right-6 top-6 z-50">
