@@ -1,6 +1,7 @@
 import { corsHeaders } from "../_shared/cors.ts";
 import { createAdminClient, requireInternalOrAdmin } from "../_shared/supabase.ts";
 import { chunkArray } from "../_shared/batching.ts";
+import { trackTokenUsage } from "../_shared/token-usage.ts";
 
 const OPENAI_API = "https://api.openai.com/v1";
 
@@ -215,35 +216,9 @@ Deno.serve(async (req: Request) => {
       }
 
       // --- Track token usage ---
-      const batchModel = (metadata.model as string) ?? "gpt-4o-mini";
-      const today = new Date().toISOString().slice(0, 10);
+      const batchModel = (metadata.model as string) ?? "gpt-4.1";
       for (const [businessId, usage] of usageAgg) {
-        const { data: existing } = await db.from("token_usage")
-          .select("id, prompt_tokens, completion_tokens, total_tokens, cached_tokens")
-          .eq("business_id", businessId)
-          .eq("provider", "openai")
-          .eq("model", batchModel)
-          .eq("batch_type", "rescore")
-          .eq("date", today)
-          .maybeSingle();
-
-        if (existing) {
-          await db.from("token_usage").update({
-            prompt_tokens: existing.prompt_tokens + usage.prompt_tokens,
-            completion_tokens: existing.completion_tokens + usage.completion_tokens,
-            total_tokens: existing.total_tokens + usage.total_tokens,
-            cached_tokens: existing.cached_tokens + usage.cached_tokens,
-          }).eq("id", existing.id);
-        } else {
-          await db.from("token_usage").insert({
-            business_id: businessId,
-            provider: "openai",
-            model: batchModel,
-            batch_type: "rescore",
-            ...usage,
-            date: today,
-          });
-        }
+        await trackTokenUsage(db, businessId, "openai", "rescore", usage, batchModel);
       }
 
       // --- Mark complete ---
