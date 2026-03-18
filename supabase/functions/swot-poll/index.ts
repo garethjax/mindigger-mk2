@@ -1,6 +1,7 @@
 import { corsHeaders } from "../_shared/cors.ts";
 import { createAdminClient, requireInternalOrAdmin } from "../_shared/supabase.ts";
 import { trackTokenUsage } from "../_shared/token-usage.ts";
+import { acquireAndCheckBatch, downloadOutputFile, markBatchCompleted } from "../_shared/batch-polling.ts";
 
 /**
  * swot-poll — pg_cron every minute
@@ -9,8 +10,6 @@ import { trackTokenUsage } from "../_shared/token-usage.ts";
  * 2. Check batch status with OpenAI
  * 3. If completed: download results, update swot_analyses
  */
-
-const OPENAI_API = "https://api.openai.com/v1";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -52,59 +51,20 @@ Deno.serve(async (req) => {
 
     for (const batch of batches) {
       try {
-        // Check batch status
-        const statusRes = await fetch(
-          `${OPENAI_API}/batches/${batch.external_batch_id}`,
-          { headers: { Authorization: `Bearer ${apiKey}` } },
-        );
-
-        if (!statusRes.ok) {
-          results.push({ batch_id: batch.id, status: "api_error" });
-          continue;
-        }
-
-        const statusData = await statusRes.json();
-        const batchStatus = statusData.status;
-
-        if (batchStatus === "in_progress" || batchStatus === "validating" || batchStatus === "finalizing") {
-          results.push({ batch_id: batch.id, status: "still_processing" });
-          continue;
-        }
-
-        if (batchStatus === "failed" || batchStatus === "expired" || batchStatus === "cancelled") {
-          await db.from("ai_batches").update({ status: "failed" }).eq("id", batch.id);
-
-          // Mark associated SWOT as failed
-          const swotId = (batch.metadata as Record<string, unknown>)?.swot_id as string;
-          if (swotId) {
-            await db.from("swot_analyses").update({ status: "failed" }).eq("id", swotId);
+        const pollResult = await acquireAndCheckBatch(db, batch, apiKey);
+        if (pollResult.skip) {
+          // SWOT-specific: mark swot_analyses as failed on terminal batch failure
+          if (["failed", "expired", "cancelled"].includes(pollResult.status)) {
+            const swotId = (batch.metadata as Record<string, unknown>)?.swot_id as string;
+            if (swotId) {
+              await db.from("swot_analyses").update({ status: "failed" }).eq("id", swotId);
+            }
           }
-
-          results.push({ batch_id: batch.id, status: batchStatus });
+          results.push({ batch_id: batch.id, status: pollResult.status });
           continue;
         }
-
-        if (batchStatus !== "completed") {
-          results.push({ batch_id: batch.id, status: batchStatus });
-          continue;
-        }
-
-        // Download results
-        const outputFileId = statusData.output_file_id;
-        if (!outputFileId) {
-          await db.from("ai_batches").update({ status: "failed" }).eq("id", batch.id);
-          results.push({ batch_id: batch.id, status: "no_output_file" });
-          continue;
-        }
-
-        const fileRes = await fetch(
-          `${OPENAI_API}/files/${outputFileId}/content`,
-          { headers: { Authorization: `Bearer ${apiKey}` } },
-        );
-        if (!fileRes.ok) throw new Error(`File download failed: ${fileRes.status}`);
-
-        const fileText = await fileRes.text();
-        const lines = fileText.trim().split("\n");
+        const { outputFileId, metadata } = pollResult;
+        const lines = await downloadOutputFile(outputFileId, apiKey);
 
         for (const line of lines) {
           try {
@@ -152,7 +112,7 @@ Deno.serve(async (req) => {
         }
 
         // Update batch status
-        await db.from("ai_batches").update({ status: "completed" }).eq("id", batch.id);
+        await markBatchCompleted(db, batch.id, metadata, outputFileId);
         results.push({ batch_id: batch.id, status: "completed" });
       } catch (innerErr) {
         await db.from("ai_batches").update({ status: "failed" }).eq("id", batch.id);

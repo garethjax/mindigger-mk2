@@ -1,6 +1,7 @@
 import { corsHeaders } from "../_shared/cors.ts";
 import { createAdminClient, requireInternalOrAdmin } from "../_shared/supabase.ts";
 import { trackTokenUsage } from "../_shared/token-usage.ts";
+import { acquireAndCheckBatch, downloadOutputFile, markBatchCompleted } from "../_shared/batch-polling.ts";
 
 /**
  * analysis-poll — pg_cron every minute
@@ -16,7 +17,6 @@ import { trackTokenUsage } from "../_shared/token-usage.ts";
  * Processes all output lines in a single pass.
  */
 
-const OPENAI_API = "https://api.openai.com/v1";
 const UPDATE_CONCURRENCY = 20;
 const IN_CLAUSE_LIMIT = 100; // PostgREST URL length limit — max UUIDs per .in() call
 
@@ -72,87 +72,13 @@ Deno.serve(async (req) => {
         const apiKey = Deno.env.get("OPENAI_API_KEY");
         if (!apiKey) throw new Error("Missing OPENAI_API_KEY");
 
-        const metadata = (batch.metadata ?? {}) as Record<string, unknown>;
-        const savedOutputFileId = metadata.output_file_id as string | undefined;
-
-        // Optimistic lock: skip if another poll invocation is already processing this batch.
-        // A lock older than 5 minutes is considered stale (crashed invocation).
-        const lockTime = metadata.processing_lock as string | undefined;
-        if (lockTime) {
-          const lockAge = Date.now() - new Date(lockTime).getTime();
-          if (lockAge < 5 * 60 * 1000) {
-            results.push({ batch_id: batch.id, status: "locked_by_other" });
-            continue;
-          }
-        }
-
-        // Claim lock atomically — use the current offset as a condition to detect races
-        const lockNow = new Date().toISOString();
-        const { data: lockResult } = await db
-          .from("ai_batches")
-          .update({ metadata: { ...metadata, processing_lock: lockNow } })
-          .eq("id", batch.id)
-          .eq("status", "in_progress")
-          .select("id");
-
-        if (!lockResult || lockResult.length === 0) {
-          results.push({ batch_id: batch.id, status: "lock_failed" });
+        const pollResult = await acquireAndCheckBatch(db, batch, apiKey);
+        if (pollResult.skip) {
+          results.push({ batch_id: batch.id, status: pollResult.status });
           continue;
         }
-
-        // If we already have output_file_id in metadata, skip OpenAI status check
-        let outputFileId = savedOutputFileId;
-
-        if (!outputFileId) {
-          const statusRes = await fetch(
-            `${OPENAI_API}/batches/${batch.external_batch_id}`,
-            { headers: { Authorization: `Bearer ${apiKey}` } },
-          );
-
-          if (!statusRes.ok) {
-            results.push({ batch_id: batch.id, status: "api_error" });
-            continue;
-          }
-
-          const statusData = await statusRes.json();
-          const batchStatus = statusData.status;
-
-          if (batchStatus === "in_progress" || batchStatus === "validating" || batchStatus === "finalizing") {
-            results.push({ batch_id: batch.id, status: "still_processing" });
-            continue;
-          }
-
-          if (batchStatus === "failed" || batchStatus === "expired" || batchStatus === "cancelled") {
-            await db
-              .from("ai_batches")
-              .update({ status: batchStatus === "cancelled" ? "cancelled" : "failed" })
-              .eq("id", batch.id);
-            results.push({ batch_id: batch.id, status: batchStatus });
-            continue;
-          }
-
-          if (batchStatus !== "completed") {
-            results.push({ batch_id: batch.id, status: batchStatus });
-            continue;
-          }
-
-          outputFileId = statusData.output_file_id;
-          if (!outputFileId) {
-            await db.from("ai_batches").update({ status: "failed" }).eq("id", batch.id);
-            results.push({ batch_id: batch.id, status: "no_output_file" });
-            continue;
-          }
-        }
-
-        // Download output file
-        const fileRes = await fetch(
-          `${OPENAI_API}/files/${outputFileId}/content`,
-          { headers: { Authorization: `Bearer ${apiKey}` } },
-        );
-        if (!fileRes.ok) throw new Error(`File download failed: ${fileRes.status}`);
-
-        const fileText = await fileRes.text();
-        const lines = fileText.trim().split("\n");
+        const { outputFileId, metadata } = pollResult;
+        const lines = await downloadOutputFile(outputFileId, apiKey);
         const totalLines = lines.length;
 
         // --- Phase 1: Parse all JSONL lines, collect reviewIds ---
@@ -386,14 +312,7 @@ Deno.serve(async (req) => {
         }
 
         // --- Phase 10: Mark complete ---
-        await db
-          .from("ai_batches")
-          .update({
-            status: "completed",
-            metadata: { ...metadata, output_file_id: outputFileId, processing_lock: null },
-          })
-          .eq("id", batch.id);
-
+        await markBatchCompleted(db, batch.id, metadata, outputFileId);
         results.push({ batch_id: batch.id, status: "completed", processed, total: totalLines });
       } catch (innerErr) {
         // Release lock and mark failed

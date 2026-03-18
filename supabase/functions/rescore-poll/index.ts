@@ -2,8 +2,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { createAdminClient, requireInternalOrAdmin } from "../_shared/supabase.ts";
 import { chunkArray } from "../_shared/batching.ts";
 import { trackTokenUsage } from "../_shared/token-usage.ts";
-
-const OPENAI_API = "https://api.openai.com/v1";
+import { acquireAndCheckBatch, downloadOutputFile, markBatchCompleted } from "../_shared/batch-polling.ts";
 
 type AiResult = {
   sentiment?: number;
@@ -55,68 +54,14 @@ Deno.serve(async (req: Request) => {
 
     for (const batch of batches) {
       const batchId = batch.id as string;
-      const metadata = (batch.metadata ?? {}) as Record<string, unknown>;
 
-      // Optimistic lock
-      const lockTime = metadata.processing_lock as string | undefined;
-      if (lockTime && Date.now() - new Date(lockTime).getTime() < 5 * 60 * 1000) {
-        results.push({ batch_id: batchId, status: "locked_by_other" });
+      const pollResult = await acquireAndCheckBatch(db, batch, apiKey);
+      if (pollResult.skip) {
+        results.push({ batch_id: batchId, status: pollResult.status });
         continue;
       }
-      const { data: locked } = await db
-        .from("ai_batches")
-        .update({ metadata: { ...metadata, processing_lock: new Date().toISOString() } })
-        .eq("id", batchId)
-        .eq("status", "in_progress")
-        .select("id");
-      if (!locked || locked.length === 0) {
-        results.push({ batch_id: batchId, status: "lock_failed" });
-        continue;
-      }
-
-      // --- Check OpenAI batch status ---
-      let outputFileId = metadata.output_file_id as string | undefined;
-      if (!outputFileId) {
-        const statusRes = await fetch(`${OPENAI_API}/batches/${batch.external_batch_id}`, {
-          headers: { Authorization: `Bearer ${apiKey}` },
-        });
-        const statusData = await statusRes.json() as {
-          status: string;
-          output_file_id?: string;
-        };
-        const batchStatus = statusData.status;
-
-        if (["in_progress", "validating", "finalizing"].includes(batchStatus)) {
-          await db.from("ai_batches")
-            .update({ metadata: { ...metadata, processing_lock: null } })
-            .eq("id", batchId);
-          results.push({ batch_id: batchId, status: "still_processing" });
-          continue;
-        }
-        if (["failed", "expired", "cancelled"].includes(batchStatus)) {
-          await db.from("ai_batches")
-            .update({ status: batchStatus === "cancelled" ? "cancelled" : "failed", metadata: { ...metadata, processing_lock: null } })
-            .eq("id", batchId);
-          results.push({ batch_id: batchId, status: batchStatus });
-          continue;
-        }
-
-        outputFileId = statusData.output_file_id;
-        if (!outputFileId) {
-          await db.from("ai_batches")
-            .update({ status: "failed", metadata: { ...metadata, processing_lock: null } })
-            .eq("id", batchId);
-          results.push({ batch_id: batchId, status: "no_output_file" });
-          continue;
-        }
-      }
-
-      // --- Download output JSONL ---
-      const fileRes = await fetch(`${OPENAI_API}/files/${outputFileId}/content`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-      });
-      const fileText = await fileRes.text();
-      const lines = fileText.trim().split("\n");
+      const { outputFileId, metadata } = pollResult;
+      const lines = await downloadOutputFile(outputFileId, apiKey);
       const totalLines = lines.length;
 
       // --- Parse all lines ---
@@ -222,10 +167,7 @@ Deno.serve(async (req: Request) => {
       }
 
       // --- Mark complete ---
-      await db.from("ai_batches").update({
-        status: "completed",
-        metadata: { ...metadata, output_file_id: outputFileId, processing_lock: null, fixed, failed: failedIds.length },
-      }).eq("id", batchId);
+      await markBatchCompleted(db, batchId, metadata, outputFileId, { fixed, failed: failedIds.length });
       results.push({ batch_id: batchId, status: "completed", fixed, failed: failedIds.length, total: totalLines });
     }
 
