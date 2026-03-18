@@ -2,6 +2,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { createAdminClient, requireInternalOrAdmin } from "../_shared/supabase.ts";
 import { trackTokenUsage } from "../_shared/token-usage.ts";
 import { acquireAndCheckBatch, downloadOutputFile, markBatchCompleted } from "../_shared/batch-polling.ts";
+import { sanitize } from "../_shared/sanitize.ts";
 
 /**
  * analysis-poll — pg_cron every minute
@@ -19,11 +20,6 @@ import { acquireAndCheckBatch, downloadOutputFile, markBatchCompleted } from "..
 
 const UPDATE_CONCURRENCY = 20;
 const IN_CLAUSE_LIMIT = 100; // PostgREST URL length limit — max UUIDs per .in() call
-
-function sanitize(text: string | null | undefined): string {
-  if (!text) return "";
-  return text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
-}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {

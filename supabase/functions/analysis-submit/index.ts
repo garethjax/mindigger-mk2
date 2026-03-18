@@ -3,6 +3,7 @@ import { REVIEW_CLAIM_CHUNK_SIZE, chunkArray } from "../_shared/batching.ts";
 import { uploadJSONL, createOpenAIBatch, insertBatchRecord } from "../_shared/batch-submission.ts";
 import { createAdminClient, requireInternalOrAdmin } from "../_shared/supabase.ts";
 import { trackTokenUsage } from "../_shared/token-usage.ts";
+import { sanitize } from "../_shared/sanitize.ts";
 
 /**
  * analysis-submit — pg_cron every minute
@@ -99,11 +100,6 @@ const REVIEW_SCHEMA = {
     },
   },
 };
-
-function sanitize(text: string | null | undefined): string {
-  if (!text) return "";
-  return text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
-}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
