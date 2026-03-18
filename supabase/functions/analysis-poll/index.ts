@@ -12,11 +12,10 @@ import { createAdminClient, requireInternalOrAdmin } from "../_shared/supabase.t
  * - Parallel review UPDATEs in micro-batches
  * - Aggregated token usage (1 upsert per business)
  *
- * Progress saved in metadata.processed_offset between invocations.
+ * Processes all output lines in a single pass.
  */
 
 const OPENAI_API = "https://api.openai.com/v1";
-const CHUNK_SIZE = 200;
 const UPDATE_CONCURRENCY = 20;
 const IN_CLAUSE_LIMIT = 100; // PostgREST URL length limit — max UUIDs per .in() call
 
@@ -74,7 +73,6 @@ Deno.serve(async (req) => {
 
         const metadata = (batch.metadata ?? {}) as Record<string, unknown>;
         const savedOutputFileId = metadata.output_file_id as string | undefined;
-        const offset = (metadata.processed_offset as number) ?? 0;
 
         // Optimistic lock: skip if another poll invocation is already processing this batch.
         // A lock older than 5 minutes is considered stale (crashed invocation).
@@ -155,7 +153,6 @@ Deno.serve(async (req) => {
         const fileText = await fileRes.text();
         const lines = fileText.trim().split("\n");
         const totalLines = lines.length;
-        const chunk = lines.slice(offset, offset + CHUNK_SIZE);
 
         // --- Phase 1: Parse all JSONL lines, collect reviewIds ---
         type ParsedLine = {
@@ -171,7 +168,7 @@ Deno.serve(async (req) => {
         const parsed: ParsedLine[] = [];
         const failedIds: string[] = [];
 
-        for (const line of chunk) {
+        for (const line of lines) {
           try {
             const obj = JSON.parse(line);
             const reviewId = obj.custom_id as string;
@@ -376,9 +373,9 @@ Deno.serve(async (req) => {
         // --- Phase 9: Flush aggregated token usage ---
         // Extract model from first parsed line's response body, fallback to gpt-4.1
         let batchModel = "gpt-4.1";
-        if (chunk.length > 0) {
+        if (lines.length > 0) {
           try {
-            const firstObj = JSON.parse(chunk[0]);
+            const firstObj = JSON.parse(lines[0]);
             batchModel = firstObj.response?.body?.model ?? "gpt-4.1";
           } catch { /* keep default */ }
         }
@@ -387,36 +384,16 @@ Deno.serve(async (req) => {
           await trackTokenUsage(db, businessId, batch.provider, "reviews", usage, batchModel);
         }
 
-        // --- Phase 10: Save progress ---
-        const newOffset = offset + chunk.length;
-        const allDone = newOffset >= totalLines;
+        // --- Phase 10: Mark complete ---
+        await db
+          .from("ai_batches")
+          .update({
+            status: "completed",
+            metadata: { ...metadata, output_file_id: outputFileId, processing_lock: null },
+          })
+          .eq("id", batch.id);
 
-        if (allDone) {
-          await db
-            .from("ai_batches")
-            .update({
-              status: "completed",
-              metadata: { ...metadata, processed_offset: newOffset, output_file_id: outputFileId, processing_lock: null },
-            })
-            .eq("id", batch.id);
-
-          results.push({ batch_id: batch.id, status: "completed", processed, total: totalLines });
-        } else {
-          await db
-            .from("ai_batches")
-            .update({
-              metadata: { ...metadata, processed_offset: newOffset, output_file_id: outputFileId, processing_lock: null },
-            })
-            .eq("id", batch.id);
-
-          results.push({
-            batch_id: batch.id,
-            status: "chunked",
-            processed,
-            total: totalLines,
-            remaining: totalLines - newOffset,
-          });
-        }
+        results.push({ batch_id: batch.id, status: "completed", processed, total: totalLines });
       } catch (innerErr) {
         // Release lock and mark failed
         const failMeta = (batch.metadata ?? {}) as Record<string, unknown>;

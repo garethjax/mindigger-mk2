@@ -109,6 +109,7 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
   const [batchActionLoading, setBatchActionLoading] = useState<string | null>(null);
   const [batchPollLoading, setBatchPollLoading] = useState(false);
   const [batchRows, setBatchRows] = useState<Batch[]>(batches);
+  const [analysisSubmitLoading, setAnalysisSubmitLoading] = useState(false);
   const [rescoreLoading, setRescoreLoading] = useState(false);
   const [rescoreBusinessId, setRescoreBusinessId] = useState("");
   const [rescoreBusinessName, setRescoreBusinessName] = useState("");
@@ -327,6 +328,39 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
     setRescoreBusinessName(b.name);
     setBusinessSuggestions([]);
     setShowSuggestions(false);
+  }
+
+  async function runAnalysisSubmit() {
+    setAnalysisSubmitLoading(true);
+    setMessage(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("analysis-submit", { body: {} });
+      if (error) {
+        const context = (error as { context?: Response }).context;
+        const bodyText = context ? await context.text().catch(() => "") : "";
+        throw new Error(`HTTP ${context?.status ?? "?"} - ${bodyText || error.message}`);
+      }
+      const result = data as { submitted?: number; message?: string; batch_ids?: string[] };
+      if (result.submitted === 0 || result.message?.includes("No pending")) {
+        setMessage({ type: "ok", text: "Nessuna recensione pending da analizzare." });
+      } else {
+        const { data: refreshedBatches } = await supabase
+          .from("ai_batches")
+          .select("id, external_batch_id, provider, batch_type, status, created_at, updated_at, metadata")
+          .order("created_at", { ascending: false })
+          .limit(50);
+        setBatchRows(refreshedBatches ?? []);
+        refreshBusinessNames(refreshedBatches ?? []);
+        setMessage({
+          type: "ok",
+          text: `Analisi avviata: ${result.submitted ?? "?"} recensioni inviate in ${result.batch_ids?.length ?? "?"} batch.`,
+        });
+      }
+    } catch (err) {
+      setMessage({ type: "err", text: err instanceof Error ? err.message : "Errore invio analisi." });
+    } finally {
+      setAnalysisSubmitLoading(false);
+    }
   }
 
   async function runBatchPoll() {
@@ -865,7 +899,15 @@ export default function AIConfigPanel({ configs, tokenUsage, batches, pricing, c
             </div>
           </div>
 
-          <div class="flex justify-end">
+          <div class="flex justify-end gap-2">
+            <button
+              type="button"
+              disabled={analysisSubmitLoading}
+              onClick={runAnalysisSubmit}
+              class="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {analysisSubmitLoading ? "Invio..." : "Invia recensioni pending"}
+            </button>
             <button
               type="button"
               disabled={batchPollLoading}
