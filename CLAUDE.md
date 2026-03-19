@@ -4,6 +4,10 @@
 
 whenever a major feature is a planned, propose a branch
 
+crea un file lessons.md nella root di progetto, prendendo appunti sull'evoluzione del progetto, i workaround utilizzati, i problemi ricorrenti eliminati.
+
+
+
 ## Stack
 
 - **Frontend**: Astro SSR + Preact islands + Tailwind CSS
