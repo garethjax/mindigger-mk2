@@ -28,6 +28,8 @@ export default function UserEditForm({ profile, allBusinesses }: Props) {
   const [locked, setLocked] = useState(profile.account_locked);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
 
   const supabase = createSupabaseBrowser();
 
@@ -147,6 +149,43 @@ export default function UserEditForm({ profile, allBusinesses }: Props) {
           {loading ? "Salvataggio..." : "Salva Modifiche"}
         </button>
       </form>
+
+      {/* Reset Password */}
+      <div class="rounded-lg border border-gray-200 bg-white p-6">
+        <h2 class="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500">Reset Password</h2>
+        <div class="flex gap-2">
+          <input
+            type="text"
+            placeholder="Nuova password (min 6 caratteri)"
+            value={newPassword}
+            onInput={(e) => setNewPassword((e.target as HTMLInputElement).value)}
+            class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <button
+            type="button"
+            disabled={resetLoading || newPassword.length < 6}
+            onClick={async () => {
+              setResetLoading(true);
+              setMessage(null);
+              const { data, error } = await supabase.functions.invoke("admin-reset-password", {
+                body: { user_id: profile.id, password: newPassword },
+              });
+              if (error) {
+                setMessage({ type: "err", text: `Errore reset: ${error.message}` });
+              } else if (data?.error) {
+                setMessage({ type: "err", text: data.error });
+              } else {
+                setMessage({ type: "ok", text: "Password aggiornata!" });
+                setNewPassword("");
+              }
+              setResetLoading(false);
+            }}
+            class="rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700 disabled:opacity-50"
+          >
+            {resetLoading ? "..." : "Reset"}
+          </button>
+        </div>
+      </div>
 
       {/* Current Business Info */}
       {currentBiz && (

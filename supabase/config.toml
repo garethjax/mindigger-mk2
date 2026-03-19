@@ -400,6 +400,9 @@ verify_jwt = false
 [functions.scraping-import]
 verify_jwt = false
 
+[functions.admin-reset-password]
+verify_jwt = false
+
 [functions.botster-credits]
 verify_jwt = false
 
