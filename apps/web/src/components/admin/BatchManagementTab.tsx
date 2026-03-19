@@ -204,7 +204,7 @@ export default function BatchManagementTab({ initialBatches, setMessage }: Props
         const bodyText = context ? await context.text().catch(() => "") : "";
         throw new Error(`HTTP ${context?.status ?? "?"} - ${bodyText || error.message}`);
       }
-      const result = data as { submitted?: number; message?: string; batch_ids?: string[] };
+      const result = data as { submitted?: number; message?: string; batches?: string[] };
       if (result.submitted === 0 || result.message?.includes("No pending")) {
         setMessage({ type: "ok", text: "Nessuna recensione pending da analizzare." });
       } else {
@@ -217,7 +217,7 @@ export default function BatchManagementTab({ initialBatches, setMessage }: Props
         refreshBusinessNames(refreshedBatches ?? []);
         setMessage({
           type: "ok",
-          text: `Analisi avviata: ${result.submitted ?? "?"} recensioni inviate in ${result.batch_ids?.length ?? "?"} batch.`,
+          text: `Analisi avviata: ${result.submitted ?? "?"} recensioni inviate in ${(result.batches as string[])?.length ?? "?"} batch.`,
         });
       }
     } catch (err) {

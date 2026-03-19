@@ -139,10 +139,34 @@ Deno.serve(async (req) => {
           .update(updateData)
           .eq("id", config.id);
 
+        // Auto-trigger analysis for newly ingested reviews
+        let analysisSubmitted = 0;
+        if (ingest.inserted_count > 0) {
+          try {
+            const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+            const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+            const analysisRes = await fetch(`${supabaseUrl}/functions/v1/analysis-submit`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${serviceRole}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ location_id: config.location_id }),
+            });
+            if (analysisRes.ok) {
+              const analysisData = await analysisRes.json();
+              analysisSubmitted = analysisData.submitted ?? 0;
+            }
+          } catch {
+            // Analysis trigger is best-effort — don't fail the scraping poll
+          }
+        }
+
         results.push({
           config_id: config.id,
           status: "completed",
           reviews_stored: ingest.inserted_count,
+          analysis_submitted: analysisSubmitted,
         });
       } catch (innerErr) {
         const msg = innerErr instanceof Error ? innerErr.message : String(innerErr);
