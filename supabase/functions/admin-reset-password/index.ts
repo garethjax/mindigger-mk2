@@ -8,26 +8,35 @@ Deno.serve(async (req) => {
 
   try {
     await requireAdmin(req.headers.get("Authorization"));
-    const { user_id, password } = await req.json();
+    const { user_id, password, email } = await req.json();
 
-    if (!user_id || !password) {
+    if (!user_id) {
       return Response.json(
-        { error: "user_id e password sono obbligatori" },
+        { error: "user_id è obbligatorio" },
         { status: 400, headers: corsHeaders },
       );
     }
 
-    if (String(password).length < 6) {
+    if (!password && !email) {
+      return Response.json(
+        { error: "Almeno uno tra password ed email è obbligatorio" },
+        { status: 400, headers: corsHeaders },
+      );
+    }
+
+    if (password && String(password).length < 6) {
       return Response.json(
         { error: "La password deve avere almeno 6 caratteri" },
         { status: 400, headers: corsHeaders },
       );
     }
 
+    const updates: Record<string, string> = {};
+    if (password) updates.password = String(password);
+    if (email) updates.email = String(email).trim().toLowerCase();
+
     const admin = createAdminClient();
-    const { error } = await admin.auth.admin.updateUserById(user_id, {
-      password: String(password),
-    });
+    const { error } = await admin.auth.admin.updateUserById(user_id, updates);
 
     if (error) {
       return Response.json(

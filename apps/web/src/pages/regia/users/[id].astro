@@ -14,6 +14,10 @@ const { data: profile } = await supabase
 
 if (!profile) return Astro.redirect("/regia/users");
 
+// Fetch email from auth.users via admin API
+const { data: authUser } = await supabase.auth.admin.getUserById(id!);
+const email = authUser?.user?.email ?? null;
+
 const { data: allBusinesses } = await supabase
   .from("businesses")
   .select("id, name")
@@ -33,6 +37,7 @@ const { data: allBusinesses } = await supabase
     <UserEditForm
       client:load
       profile={profile}
+      email={email}
       allBusinesses={allBusinesses ?? []}
     />
   </div>

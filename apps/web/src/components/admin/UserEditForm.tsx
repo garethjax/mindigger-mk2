@@ -17,10 +17,11 @@ interface Business {
 
 interface Props {
   profile: Profile;
+  email: string | null;
   allBusinesses: Business[];
 }
 
-export default function UserEditForm({ profile, allBusinesses }: Props) {
+export default function UserEditForm({ profile, email: initialEmail, allBusinesses }: Props) {
   const [fullName, setFullName] = useState(profile.full_name ?? "");
   const [role, setRole] = useState(profile.role);
   const [businessId, setBusinessId] = useState(profile.business_id ?? "");
@@ -30,6 +31,7 @@ export default function UserEditForm({ profile, allBusinesses }: Props) {
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [resetLoading, setResetLoading] = useState(false);
+  const [email, setEmail] = useState(initialEmail ?? "");
 
   const supabase = createSupabaseBrowser();
 
@@ -51,9 +53,23 @@ export default function UserEditForm({ profile, allBusinesses }: Props) {
 
     if (error) {
       setMessage({ type: "err", text: error.message });
-    } else {
-      setMessage({ type: "ok", text: "Profilo aggiornato!" });
+      setLoading(false);
+      return;
     }
+
+    // Update email in auth.users if changed
+    if (email && email !== initialEmail) {
+      const { data: emailData, error: emailError } = await supabase.functions.invoke("admin-reset-password", {
+        body: { user_id: profile.id, email },
+      });
+      if (emailError || emailData?.error) {
+        setMessage({ type: "err", text: `Profilo salvato, ma errore email: ${emailData?.error ?? emailError?.message}` });
+        setLoading(false);
+        return;
+      }
+    }
+
+    setMessage({ type: "ok", text: "Profilo aggiornato!" });
     setLoading(false);
   }
 
@@ -68,6 +84,16 @@ export default function UserEditForm({ profile, allBusinesses }: Props) {
         <div>
           <label class="mb-1 block text-xs font-medium text-gray-500">ID</label>
           <div class="text-sm text-gray-600 font-mono">{profile.id}</div>
+        </div>
+
+        <div>
+          <label class="mb-1 block text-xs font-medium text-gray-500">Email</label>
+          <input
+            type="email"
+            value={email}
+            onInput={(e) => setEmail((e.target as HTMLInputElement).value)}
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
         </div>
 
         <div>
