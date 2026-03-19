@@ -39,6 +39,9 @@ export interface Category {
 export interface Business {
   id: string;
   name: string;
+  ragione_sociale: string | null;
+  email: string | null;
+  referente_nome: string | null;
   type: string | null;
   logo_url: string | null;
   user_id: string;
@@ -192,9 +195,11 @@ export interface TokenUsage {
   id: string;
   business_id: string;
   provider: string;
+  model: string;
   batch_type: BatchType;
   prompt_tokens: number;
   completion_tokens: number;
+  cached_tokens: number;
   total_tokens: number;
   date: string;
   created_at: string;

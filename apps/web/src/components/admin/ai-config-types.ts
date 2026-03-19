@@ -1,26 +1,18 @@
-export interface AIConfig {
-  id: string;
-  provider: string;
-  mode: string;
-  model: string;
-  config: Record<string, unknown>;
-  is_active: boolean;
-  created_at: string;
-}
+import type {
+  AIConfig as SharedAIConfig,
+  AIBatch as SharedAIBatch,
+  TokenUsage,
+} from "@shared/types";
 
-export interface TokenUsageRow {
-  business_id: string;
-  provider: string;
-  model: string;
-  batch_type: string;
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-  cached_tokens: number;
-  date: string;
+// Re-export DB-level types from @shared
+export type AIConfig = SharedAIConfig;
+
+// TokenUsageRow extends the shared TokenUsage with the Supabase join field
+export interface TokenUsageRow extends Omit<TokenUsage, "id" | "created_at"> {
   businesses: { name: string } | null;
 }
 
+// BatchMetadata is view-specific (describes the JSON blob stored in ai_batches.metadata)
 export interface BatchMetadata {
   business_id?: string;
   review_count?: number;
@@ -30,17 +22,16 @@ export interface BatchMetadata {
   [key: string]: unknown;
 }
 
-export interface Batch {
-  id: string;
-  external_batch_id: string;
-  provider: string;
+// Batch extends the shared AIBatch with a typed metadata field.
+// Uses `string` for batch_type/status to stay compatible with Supabase query results
+// which return plain strings rather than enum values.
+export interface Batch extends Omit<SharedAIBatch, "metadata" | "batch_type" | "status"> {
   batch_type: string;
   status: string;
-  created_at: string;
-  updated_at: string;
   metadata?: BatchMetadata;
 }
 
+// UI-specific types — no shared equivalent
 export interface PricingRow {
   id: string;
   provider: string;
