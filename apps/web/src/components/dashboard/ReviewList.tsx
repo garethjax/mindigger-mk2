@@ -102,7 +102,12 @@ export default function ReviewList({ filters, businessId, locationIds }: Props) 
 
     if (!error && rawData) {
       const data = rawData as unknown as Review[];
-      setReviews(reset ? data : [...reviews, ...data]);
+      setReviews((prev) => {
+        if (reset) return data;
+        const existingIds = new Set(prev.map((r) => r.id));
+        const newItems = data.filter((r) => !existingIds.has(r.id));
+        return [...prev, ...newItems];
+      });
       setHasMore(data.length === PAGE_SIZE);
       if (reset) setPage(0);
     }
