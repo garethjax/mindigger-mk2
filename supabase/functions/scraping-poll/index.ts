@@ -84,11 +84,30 @@ Deno.serve(async (req) => {
         // Job completed — fetch results
         const runs = jobData.job?.runs ?? [];
         if (runs.length === 0) {
-          await db
-            .from("scraping_configs")
-            .update({ status: "completed", last_scraped_at: new Date().toISOString() })
-            .eq("id", config.id);
-          results.push({ config_id: config.id, status: "completed_no_runs" });
+          // Race condition: Botster sometimes reports `state = completed` for a few
+          // seconds before the run is indexed. Don't mark the scrape completed yet —
+          // leave status `elaborating` so the next tick re-polls. Use retry_count to
+          // avoid infinite loops if a job genuinely completes with zero runs.
+          const RUNS_RETRY_LIMIT = 10; // ~10 minutes given the every-minute cron
+          const nextRetry = (config.retry_count ?? 0) + 1;
+          if (nextRetry >= RUNS_RETRY_LIMIT) {
+            await db
+              .from("scraping_configs")
+              .update({
+                status: "completed",
+                last_scraped_at: new Date().toISOString(),
+                last_error: `Botster reported completed with no runs after ${RUNS_RETRY_LIMIT} retries`,
+                retry_count: 0,
+              })
+              .eq("id", config.id);
+            results.push({ config_id: config.id, status: "completed_no_runs_giveup" });
+          } else {
+            await db
+              .from("scraping_configs")
+              .update({ retry_count: nextRetry })
+              .eq("id", config.id);
+            results.push({ config_id: config.id, status: "awaiting_runs" });
+          }
           continue;
         }
 
@@ -126,6 +145,7 @@ Deno.serve(async (req) => {
           status: "completed",
           last_scraped_at: new Date().toISOString(),
           last_error: null,
+          retry_count: 0,
         };
 
         // Mark initial scrape as done only if the run returned at least one raw item.

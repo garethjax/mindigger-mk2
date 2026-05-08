@@ -165,7 +165,7 @@ Deno.serve(async (req) => {
           apikey: serviceRole,
           Authorization: `Bearer ${serviceRole}`,
         },
-        body: JSON.stringify({ reason: "scraping-import" }),
+        body: JSON.stringify({ location_id: config.location_id, reason: "scraping-import" }),
       });
 
       analysisTriggered = analysisRes.ok;
