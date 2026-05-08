@@ -1,7 +1,7 @@
 ---
 import AdminLayout from "@/layouts/AdminLayout.astro";
 import UserEditForm from "@/components/admin/UserEditForm";
-import { createSupabaseServer } from "@/lib/supabase";
+import { createSupabaseServer, createSupabaseAdmin } from "@/lib/supabase";
 
 const { id } = Astro.params;
 const supabase = createSupabaseServer(Astro.cookies, Astro.request);
@@ -14,8 +14,9 @@ const { data: profile } = await supabase
 
 if (!profile) return Astro.redirect("/regia/users");
 
-// Fetch email from auth.users via admin API
-const { data: authUser } = await supabase.auth.admin.getUserById(id!);
+// Fetch email from auth.users via admin API (requires service_role)
+const admin = createSupabaseAdmin();
+const { data: authUser } = await admin.auth.admin.getUserById(id!);
 const email = authUser?.user?.email ?? null;
 
 const { data: allBusinesses } = await supabase

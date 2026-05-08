@@ -1,8 +1,24 @@
 import { createBrowserClient, createServerClient, parseCookieHeader } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 import type { AstroCookies } from "astro";
 
 const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.PUBLIC_SUPABASE_ANON_KEY;
+const supabaseServiceRoleKey = import.meta.env.SUPABASE_SERVICE_ROLE_KEY;
+
+/**
+ * Admin client — server-only. Uses the service role key to bypass RLS
+ * and access auth.* admin endpoints (e.g. listing users by id, fetching
+ * emails). Never expose this client to the browser.
+ */
+export function createSupabaseAdmin() {
+  if (!supabaseServiceRoleKey) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
+  }
+  return createClient(supabaseUrl, supabaseServiceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
 
 /**
  * Browser client — used in Preact islands (client-side).
