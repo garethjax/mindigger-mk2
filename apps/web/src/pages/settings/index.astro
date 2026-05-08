@@ -105,7 +105,15 @@ const isReset = Astro.url.searchParams.get("reset") === "true";
     msgDiv.classList.remove("hidden", "bg-red-50", "text-red-700", "bg-green-50", "text-green-700");
     if (error) {
       msgDiv.classList.add("bg-red-50", "text-red-700");
-      msgDiv.textContent = "Errore nell'aggiornamento.";
+      const code = (error as { code?: string }).code ?? "";
+      const raw = error.message ?? "";
+      if (code === "same_password" || /same.*password|new password should be different/i.test(raw)) {
+        msgDiv.textContent = "La nuova passphrase deve essere diversa da quella attuale.";
+      } else if (code === "weak_password" || /weak password|password.*weak/i.test(raw)) {
+        msgDiv.textContent = "Passphrase troppo debole. Scegline una più complessa.";
+      } else {
+        msgDiv.textContent = `Errore nell'aggiornamento: ${raw || "riprova."}`;
+      }
     } else {
       msgDiv.classList.add("bg-green-50", "text-green-700");
       msgDiv.textContent = "Passphrase aggiornata!";
