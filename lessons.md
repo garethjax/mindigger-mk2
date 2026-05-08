@@ -28,6 +28,17 @@ Il default di 1000 righe tronca silenziosamente i risultati. Alzato a 50000 in `
 **Problema**: Premere "rescore" senza selezionare un business dava HTTP 404.
 **Soluzione**: Aggiunto dialog di conferma prima del rescore globale.
 
+### Race condition scraping-poll vs Botster runs (2026-05-08)
+**Problema**: Botster può rispondere con `job.state = "completed"` e `job.runs = []` per qualche secondo dopo la fine del job, prima che il run sia indicizzato. `scraping-poll` interpretava questa risposta come "completato senza dati" e marcava `scraping_configs.status = completed` senza re-pollare. Il run effettivo (1000 review) appariva poco dopo, ma il sistema non lo guardava più. Per IGINIO MASSARI TripAdvisor risultato: 0 review ingerite nonostante Botster ne avesse 1000.
+**Recupero manuale**: usare lo script `bun run scripts/recover-scraping.ts` (senza argomenti scansiona e mostra i candidati; con `<config_id>` recupera uno; con `--all` recupera tutti). Internamente chiama la edge function `scraping-import` (richiede JWT admin, non service_role).
+**Fix applicato (2026-05-08)**: in `supabase/functions/scraping-poll/index.ts` quando `runs.length === 0` ma `state === completed`, lo scraping resta `elaborating` per un re-poll al tick successivo, incrementando `retry_count`. Dopo `RUNS_RETRY_LIMIT = 10` tentativi (~10 minuti col cron ogni minuto) marca completed con un messaggio di errore informativo. `retry_count` viene azzerato sull'ingestion riuscita.
+
+**Fix correlato (2026-05-08)**: `scraping-import` non passava `location_id` ad `analysis-submit` → modalità globale → bloccava qualsiasi nuovo batch se ce n'era già uno attivo. Ora passa `location_id`, abilitando batch OpenAI paralleli per location diverse.
+
+### Wipe dei volumi Docker (2026-05-08)
+**Problema**: Resize del disco virtuale di Docker → tutti i volumi cancellati, incluso il database Supabase locale (~15k review legacy + dati operativi). I volumi NON sono nella cartella di progetto, vivono in Docker.
+**Recupero**: ricreato lo stack con `supabase start` + applicato migration + rieseguito `bun run scripts/migrate.ts` per i dati legacy Salsamenteria. Lezione: Supabase Cloud free come backup remoto + `pg_dump` periodico.
+
 ## Evoluzione architetturale
 
 ### Modularizzazione edge functions (2026-03-18)
